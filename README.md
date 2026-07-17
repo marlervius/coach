@@ -30,18 +30,14 @@ Appen fungerer fullt ut uten nøkkel – den deterministiske Daniels-motoren lag
 
 ## Deploy til Vercel
 
-Lokalt brukes SQLite; på Vercel trenger du en Postgres-database (serverless har ikke varig disk):
+Prosjektet er satt opp for Postgres (Neon) både lokalt og på Vercel:
 
-1. Opprett en Postgres-database, f.eks. **Neon** via Vercel Marketplace (gratis nivå holder lenge)
-2. Endre `provider` i [prisma/schema.prisma](prisma/schema.prisma) fra `sqlite` til `postgresql`
-3. Sett miljøvariabler i Vercel-prosjektet:
-   - `DATABASE_URL` – Postgres-URL-en fra Neon
-   - `ANTHROPIC_API_KEY` – (valgfritt) for AI-forbedring
-4. Legg til i `package.json` slik at Prisma genereres og skjemaet pushes ved deploy:
-   ```json
-   "scripts": { "build": "prisma generate && prisma db push && next build" }
-   ```
-5. `npx vercel` (eller koble GitHub-repoet til Vercel)
+1. Importer GitHub-repoet som nytt prosjekt på vercel.com
+2. Opprett en **Neon**-database under prosjektets *Storage*-fane og koble den til prosjektet
+   (dette setter `DATABASE_URL` og `DATABASE_URL_UNPOOLED` automatisk)
+3. Legg eventuelt til `ANTHROPIC_API_KEY` under *Settings → Environment Variables* for AI-forbedring
+4. Redeploy – byggeskriptet kjører `prisma db push` automatisk
+5. Lokal utvikling: lim de samme to database-URL-ene inn i `.env`
 
 > **Merk:** Coach-sidene har ingen innlogging ennå. Utøverlenkene er ugjettbare, men `/coach` er åpen – legg til enkel auth (f.eks. Vercel-passordbeskyttelse eller NextAuth) før du deler URL-en offentlig.
 
