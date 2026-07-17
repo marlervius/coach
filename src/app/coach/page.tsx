@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DISTANCES } from "@/lib/vdot";
 import { requireCoach } from "@/lib/auth";
+import { DeleteProgramButton } from "@/components/DeleteProgramButton";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +33,10 @@ export default async function CoachPage() {
       ) : (
         <ul className="space-y-3">
           {programs.map((p) => (
-            <li key={p.id}>
+            <li key={p.id} className="flex items-stretch gap-2">
               <Link
                 href={`/coach/program/${p.id}`}
-                className="block bg-white border border-slate-200 hover:border-emerald-400 rounded-xl p-5 transition-colors"
+                className="flex-1 min-w-0 block bg-white border border-slate-200 hover:border-emerald-400 rounded-xl p-5 transition-colors"
               >
                 <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
@@ -50,6 +51,7 @@ export default async function CoachPage() {
                   </div>
                 </div>
               </Link>
+              <DeleteProgramButton id={p.id} athleteName={p.athleteName} />
             </li>
           ))}
         </ul>
