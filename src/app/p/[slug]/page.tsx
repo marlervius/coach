@@ -1,9 +1,14 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { DISTANCES } from "@/lib/vdot";
 import { DAY_NAMES, TYPE_LABELS, type Plan, type DayType } from "@/lib/types";
+import { daysBetween, todayInTimeZone } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 const TYPE_STYLE: Record<DayType, { badge: string; border: string }> = {
   hvile: { badge: "bg-slate-100 text-slate-500", border: "border-slate-200" },
@@ -22,14 +27,14 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
   if (!program) notFound();
 
   const plan: Plan = JSON.parse(program.planJson);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInTimeZone();
   const currentWeekIdx = plan.weeks.findIndex((w) =>
     w.days.some((d) => d.date >= today)
   );
   const distLabel = DISTANCES[program.targetRace]?.label ?? program.targetRace;
   const raceDate = plan.weeks.at(-1)?.days.at(-1)?.date;
   const daysToRace = raceDate
-    ? Math.max(0, Math.round((new Date(raceDate).getTime() - new Date(today).getTime()) / 86400000))
+    ? Math.max(0, daysBetween(today, raceDate))
     : null;
 
   return (

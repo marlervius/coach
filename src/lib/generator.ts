@@ -20,15 +20,10 @@ import {
   type TrainingPaces,
 } from "./vdot";
 import type { Plan, PlanDay, PlanWeek, ProgramInput, PaceCard, DayType } from "./types";
+import { addIsoDays } from "./date";
 
 function round05(n: number): number {
   return Math.round(n * 2) / 2;
-}
-
-function addDays(iso: string, days: number): string {
-  const d = new Date(iso + "T12:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 /** Fordeler ukene på de fire fasene. */
@@ -201,6 +196,52 @@ function qualitySession(
   };
 }
 
+/** Kort kvalitetsøkt som holder totaldistansen innenfor ukebudsjettet. */
+function compactQualitySession(
+  phase: number,
+  dist: string,
+  maxKm: number,
+  p: TrainingPaces,
+  vdot: number
+): Session {
+  const km = Math.max(3, round05(maxKm));
+  if (phase === 2) {
+    return {
+      type: "repetisjoner",
+      title: `${km} km rolig + stigningsløp`,
+      desc: `${km} km totalt i E-fart (${fmtRange(p.E)}). Etter rolig oppvarming: 6 × 20 sek kontrollerte stigningsløp med full gå-/joggepause. Dette gir fart og god teknikk uten å sprenge ukesvolumet.`,
+      km,
+      paceKey: "E",
+    };
+  }
+  if (phase === 3 && (dist === "halvmaraton" || dist === "maraton")) {
+    return {
+      type: "terskel",
+      title: `Kontrollert terskelfartslek – ${km} km totalt`,
+      desc: `${km} km totalt. Løp rolig i E-fart og legg inn 4 × 3 min i T-fart (${fmtRange(p.T)}) med 2 min rolig jogg. Avslutt rolig. Hold god kontroll hele veien.`,
+      km,
+      paceKey: "T",
+    };
+  }
+  if (phase === 3) {
+    return {
+      type: "intervall",
+      title: `Kort intervalløkt – ${km} km totalt`,
+      desc: `${km} km totalt. Etter rolig oppvarming: 6 × 1 min i I-fart (${fmtRange(p.I)}) med 90 sek rolig jogg. Resten løpes lett. Korte drag gir kvalitet uten for stort volum.`,
+      km,
+      paceKey: "I",
+    };
+  }
+  const racePace = fmtTime(racePaceSecPerKm(vdot, dist));
+  return {
+    type: "intervall",
+    title: `Lett konkurransefart – ${km} km totalt`,
+    desc: `${km} km totalt med 4 korte drag på 60–90 sek i planlagt konkurransefart (${racePace}/km). God pause og full kontroll – målet er å bli skarp, ikke sliten.`,
+    km,
+    paceKey: "I",
+  };
+}
+
 /** Maks lengde på langtur per distanse. */
 function longRunCap(dist: string): number {
   switch (dist) {
@@ -271,6 +312,7 @@ export function generatePlan(input: ProgramInput): Plan {
     for (let dow = 0; dow < 7; dow++) {
       const role = layout[dow];
       if (!role) continue;
+      if (isRaceWeek && (dow === 5 || dow === 6)) continue;
       if (role === "L") longDay = dow;
       else if (role === "E") eDays.push(dow);
       else if (phase === 1) {
@@ -278,18 +320,64 @@ export function generatePlan(input: ProgramInput): Plan {
         eDays.push(dow);
       } else if (isRecovery && role === "Q1") {
         eDays.push(dow); // lettere restitusjonsuke: kun én kvalitetsøkt
+      } else if (isRaceWeek && role === "Q2") {
+        eDays.push(dow);
       } else {
         sessions[dow] = qualitySession(phase, targetRace, role === "Q1" ? 1 : 2, km, p, vdot);
       }
     }
 
-    const longKm = Math.min(round05(km * (targetRace === "maraton" ? 0.3 : 0.25)), longRunCap(targetRace));
-    const sessionKm = Object.values(sessions).reduce((s, x) => s + (x?.km ?? 0), 0);
-    const remaining = Math.max(0, km - longKm - sessionKm);
-    const ePerDay = eDays.length ? round05(remaining / eDays.length) : 0;
+    const raceAndShakeoutKm = isRaceWeek ? (DISTANCES[targetRace]?.km ?? 10) + 4 : 0;
+    const availableKm = Math.max(0, km - raceAndShakeoutKm);
+    const longKm = isRaceWeek
+      ? 0
+      : Math.min(round05(km * (targetRace === "maraton" ? 0.3 : 0.25)), longRunCap(targetRace));
+    const minimumEasyKm = 2.5;
+    const sessionDays = () =>
+      Object.keys(sessions)
+        .map(Number)
+        .sort((a, b) => a - b);
+    const committedKm = () =>
+      longKm +
+      Object.values(sessions).reduce((sum, session) => sum + (session?.km ?? 0), 0) +
+      eDays.length * minimumEasyKm;
+
+    // Fjern den andre kvalitetsøkten først hvis den ikke får plass i ukebudsjettet.
+    while (sessionDays().length > 1 && committedKm() > availableKm) {
+      const day = sessionDays().at(-1)!;
+      delete sessions[day];
+      eDays.push(day);
+    }
+
+    // Skaler den gjenværende kvalitetsøkten, eller gjør den rolig, ved lavt volum.
+    const remainingSessionDays = sessionDays();
+    if (remainingSessionDays.length === 1 && committedKm() > availableKm) {
+      const day = remainingSessionDays[0];
+      const maxSessionKm = round05(
+        availableKm - longKm - eDays.length * minimumEasyKm
+      );
+      if (maxSessionKm >= 3) {
+        sessions[day] = compactQualitySession(phase, targetRace, maxSessionKm, p, vdot);
+      } else {
+        delete sessions[day];
+        eDays.push(day);
+      }
+    }
+
+    const sessionKm = Object.values(sessions).reduce((sum, session) => sum + (session?.km ?? 0), 0);
+    const remaining = Math.max(0, availableKm - longKm - sessionKm);
+    const easyKm = new Map<number, number>();
+    const easyUnits = Math.floor(remaining * 2 + 1e-9);
+    const baseUnits = eDays.length ? Math.floor(easyUnits / eDays.length) : 0;
+    const extraUnits = eDays.length ? easyUnits % eDays.length : 0;
+    [...eDays]
+      .sort((a, b) => a - b)
+      .forEach((day, index) => {
+        easyKm.set(day, (baseUnits + (index < extraUnits ? 1 : 0)) / 2);
+      });
 
     for (let dow = 0; dow < 7; dow++) {
-      const date = addDays(startDate, w * 7 + dow);
+      const date = addIsoDays(startDate, w * 7 + dow);
       const role = layout[dow];
 
       // Konkurransedag: siste dag i siste uke
@@ -352,16 +440,28 @@ export function generatePlan(input: ProgramInput): Plan {
         continue;
       }
       // Rolig dag
+      const dayKm = easyKm.get(dow) ?? 0;
+      if (dayKm === 0) {
+        days.push({
+          dow,
+          date,
+          type: "hvile",
+          title: "Hvile",
+          desc: "Ingen løping i dag. Det lave ukesvolumet prioriteres på de viktigste øktene.",
+          km: 0,
+        });
+        continue;
+      }
       const strides = phase === 1 && (dow === 1 || dow === 3);
       days.push({
         dow, date, type: "rolig",
-        title: `Rolig ${ePerDay} km${strides ? " + stigningsløp" : ""}`,
-        desc: `${ePerDay} km rolig i E-fart (${fmtRange(p.E)}).${strides ? " Avslutt med 6 × 20 sek stigningsløp med god pause – lett akselerasjon opp mot rask, kontrollert fart." : " Fokus på god løpsteknikk og avslappet rytme."}`,
-        km: ePerDay,
+        title: `Rolig ${dayKm} km${strides ? " + stigningsløp" : ""}`,
+        desc: `${dayKm} km rolig i E-fart (${fmtRange(p.E)}).${strides ? " Avslutt med 6 × 20 sek stigningsløp med god pause – lett akselerasjon opp mot rask, kontrollert fart." : " Fokus på god løpsteknikk og avslappet rytme."}`,
+        km: dayKm,
         pace: fmtRange(p.E),
         hr: fmtHr("E", hrMax),
       });
-      plannedKm += ePerDay;
+        plannedKm += dayKm;
     }
 
     weeksOut.push({

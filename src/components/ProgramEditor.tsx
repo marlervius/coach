@@ -29,6 +29,7 @@ interface ProgramMeta {
   hrMax: number | null;
   startDate: string;
   notes: string | null;
+  revision: number;
 }
 
 export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; initialPlan: Plan }) {
@@ -39,47 +40,74 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   const [aiRunning, setAiRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [revision, setRevision] = useState(program.revision);
 
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/p/${program.slug}` : `/p/${program.slug}`;
 
-  async function savePlan(next: Plan) {
+  async function savePlan(next: Plan): Promise<boolean> {
     setSaving(true);
-    setPlan(next);
+    setMessage(null);
     try {
       const res = await fetch(`/api/program/${program.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: next }),
+        body: JSON.stringify({ plan: next, revision }),
       });
-      if (!res.ok) throw new Error();
-      setMessage(null);
+      const data = await res.json();
+      if (res.status === 401) {
+        router.push("/login");
+        return false;
+      }
+      if (res.status === 409 && data.plan) {
+        setPlan(data.plan);
+        setRevision(data.revision);
+        setMessage(data.error);
+        return false;
+      }
+      if (!res.ok) {
+        setMessage(data.error ?? "Kunne ikke lagre – prøv igjen.");
+        return false;
+      }
+      setPlan(data.plan ?? next);
+      setRevision(data.revision);
+      return true;
     } catch {
       setMessage("Kunne ikke lagre – prøv igjen.");
+      return false;
     } finally {
       setSaving(false);
     }
   }
 
-  function updateDay(wi: number, di: number, patch: Partial<PlanDay>) {
+  async function updateDay(wi: number, di: number, patch: Partial<PlanDay>) {
     const next: Plan = structuredClone(plan);
     Object.assign(next.weeks[wi].days[di], patch, { edited: true });
     next.weeks[wi].km = Math.round(next.weeks[wi].days.reduce((s, d) => s + (Number(d.km) || 0), 0) * 2) / 2;
-    savePlan(next);
-    setEditing(null);
+    if (await savePlan(next)) setEditing(null);
   }
 
   async function runAI() {
     setAiRunning(true);
     setMessage(null);
     try {
-      const res = await fetch(`/api/program/${program.id}/ai`, { method: "POST" });
+      const res = await fetch(`/api/program/${program.id}/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision }),
+      });
       const data = await res.json();
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
       if (!res.ok) {
+        if (data.plan) setPlan(data.plan);
+        if (typeof data.revision === "number") setRevision(data.revision);
         setMessage(data.error ?? "AI-forbedring feilet.");
       } else {
         setPlan(data.plan);
+        setRevision(data.revision);
         setMessage("Programmet er forbedret av AI. Se over endringene!");
-        router.refresh();
       }
     } catch {
       setMessage("AI-forbedring feilet – sjekk tilkoblingen.");
@@ -96,8 +124,25 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
 
   async function remove() {
     if (!confirm(`Slette programmet til ${program.athleteName}? Dette kan ikke angres.`)) return;
-    await fetch(`/api/program/${program.id}`, { method: "DELETE" });
-    router.push("/coach");
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/program/${program.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) {
+        setMessage(data.error ?? "Kunne ikke slette programmet.");
+        return;
+      }
+      router.push("/coach");
+      router.refresh();
+    } catch {
+      setMessage("Kunne ikke slette programmet.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -117,14 +162,15 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={runAI}
-              disabled={aiRunning}
+              disabled={aiRunning || saving}
               className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
             >
               {aiRunning ? "AI jobber…" : "✨ Forbedre med AI"}
             </button>
             <button
               onClick={remove}
-              className="border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              disabled={saving || aiRunning}
+              className="border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
             >
               Slett
             </button>
@@ -133,7 +179,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
 
         <div className="mt-4 flex items-center gap-2 flex-wrap">
           <span className="text-sm text-slate-500">Utøverens lenke:</span>
-          <a href={`/p/${program.slug}`} target="_blank" className="text-sm font-mono text-emerald-700 bg-emerald-50 px-2 py-1 rounded">
+          <a href={`/p/${program.slug}`} target="_blank" rel="noopener noreferrer" className="text-sm font-mono text-emerald-700 bg-emerald-50 px-2 py-1 rounded">
             /p/{program.slug}
           </a>
           <button onClick={copyLink} className="text-sm text-slate-500 hover:text-slate-800 underline">
@@ -165,6 +211,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
                   day={day}
                   onSave={(patch) => updateDay(wi, di, patch)}
                   onCancel={() => setEditing(null)}
+                  disabled={saving}
                 />
               ) : (
                 <div key={key} className="bg-white border border-slate-200 rounded-lg p-4 flex gap-4 items-start">
@@ -196,7 +243,8 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
                   </div>
                   <button
                     onClick={() => setEditing(key)}
-                    className="text-sm text-slate-400 hover:text-emerald-700 shrink-0"
+                    disabled={saving || aiRunning}
+                    className="text-sm text-slate-400 hover:text-emerald-700 disabled:opacity-40 shrink-0"
                   >
                     Rediger
                   </button>
@@ -214,10 +262,12 @@ function DayEditForm({
   day,
   onSave,
   onCancel,
+  disabled,
 }: {
   day: PlanDay;
-  onSave: (patch: Partial<PlanDay>) => void;
+  onSave: (patch: Partial<PlanDay>) => Promise<void>;
   onCancel: () => void;
+  disabled: boolean;
 }) {
   const [form, setForm] = useState({
     type: day.type,
@@ -232,27 +282,28 @@ function DayEditForm({
   return (
     <div className="bg-emerald-50/50 border-2 border-emerald-300 rounded-lg p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <select className={field} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as DayType })}>
+        <select disabled={disabled} className={field} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as DayType })}>
           {Object.entries(TYPE_LABELS).map(([k, v]) => (
             <option key={k} value={k}>{v}</option>
           ))}
         </select>
-        <input className={field + " sm:col-span-2"} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Tittel" />
+        <input disabled={disabled} className={field + " sm:col-span-2"} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Tittel" />
       </div>
-      <textarea className={field} rows={3} value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Beskrivelse av økten" />
+      <textarea disabled={disabled} className={field} rows={3} value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Beskrivelse av økten" />
       <div className="grid grid-cols-3 gap-3">
-        <input className={field} type="number" step="0.5" min="0" value={form.km} onChange={(e) => setForm({ ...form, km: e.target.value })} placeholder="km" />
-        <input className={field} value={form.pace} onChange={(e) => setForm({ ...form, pace: e.target.value })} placeholder="Fart, f.eks. 4:30–4:50/km" />
-        <input className={field} value={form.hr} onChange={(e) => setForm({ ...form, hr: e.target.value })} placeholder="Pulssone" />
+        <input disabled={disabled} className={field} type="number" step="0.5" min="0" max="300" value={form.km} onChange={(e) => setForm({ ...form, km: e.target.value })} placeholder="km" />
+        <input disabled={disabled} className={field} value={form.pace} onChange={(e) => setForm({ ...form, pace: e.target.value })} placeholder="Fart, f.eks. 4:30–4:50/km" />
+        <input disabled={disabled} className={field} value={form.hr} onChange={(e) => setForm({ ...form, hr: e.target.value })} placeholder="Pulssone" />
       </div>
       <div className="flex gap-2">
         <button
-          onClick={() => onSave({ ...form, km: Number(form.km) || 0 })}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg"
+          onClick={() => void onSave({ ...form, km: Number(form.km) || 0 })}
+          disabled={disabled}
+          className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg"
         >
           Lagre
         </button>
-        <button onClick={onCancel} className="text-sm text-slate-500 hover:text-slate-700 px-3">
+        <button disabled={disabled} onClick={onCancel} className="text-sm text-slate-500 hover:text-slate-700 disabled:opacity-50 px-3">
           Avbryt
         </button>
       </div>

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DISTANCES } from "@/lib/vdot";
+import { requireCoach } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function CoachPage() {
+  await requireCoach();
   const programs = await prisma.program.findMany({ orderBy: { createdAt: "desc" } });
 
   return (

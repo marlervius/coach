@@ -21,6 +21,8 @@ model Program {
   startDate   DateTime
   notes       String?
   planJson    String
+  revision    Int      @default(0)
+  aiLockedUntil DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

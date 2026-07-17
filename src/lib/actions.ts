@@ -1,33 +1,27 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { prisma } from "./db";
 import { generatePlan } from "./generator";
-import type { ProgramInput } from "./types";
+import { requireCoach } from "./auth";
+import { parseProgramInput, ValidationError } from "./validation";
 
 function makeSlug(): string {
-  const chars = "abcdefghijkmnpqrstuvwxyz23456789";
-  let s = "";
-  for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
+  return randomBytes(16).toString("base64url");
 }
 
 export async function createProgram(formData: FormData) {
-  const input: ProgramInput = {
-    athleteName: String(formData.get("athleteName") ?? "").trim(),
-    targetRace: String(formData.get("targetRace") ?? "5000"),
-    vdot: Number(formData.get("vdot")),
-    weeks: Number(formData.get("weeks")),
-    daysPerWeek: Number(formData.get("daysPerWeek")),
-    weeklyKm: Number(formData.get("weeklyKm")),
-    hrMax: formData.get("hrMax") ? Number(formData.get("hrMax")) : null,
-    startDate: String(formData.get("startDate")),
-    notes: String(formData.get("notes") ?? "").trim() || undefined,
-  };
+  await requireCoach();
 
-  if (!input.athleteName || !input.vdot || !input.weeks || !input.startDate) {
-    throw new Error("Mangler påkrevde felter");
+  let input;
+  try {
+    input = parseProgramInput(formData);
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      redirect(`/coach/new?error=${encodeURIComponent(error.message)}`);
+    }
+    throw error;
   }
 
   const plan = generatePlan(input);
@@ -49,10 +43,4 @@ export async function createProgram(formData: FormData) {
   });
 
   redirect(`/coach/program/${program.id}`);
-}
-
-export async function deleteProgram(id: string) {
-  await prisma.program.delete({ where: { id } });
-  revalidatePath("/coach");
-  redirect("/coach");
 }

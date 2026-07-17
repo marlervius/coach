@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ProgramEditor } from "@/components/ProgramEditor";
 import type { Plan } from "@/lib/types";
+import { requireCoach } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProgramPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireCoach();
   const { id } = await params;
   const program = await prisma.program.findUnique({ where: { id } });
   if (!program) notFound();
@@ -31,6 +33,7 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           hrMax: program.hrMax,
           startDate: program.startDate.toISOString().slice(0, 10),
           notes: program.notes,
+          revision: program.revision,
         }}
         initialPlan={plan}
       />

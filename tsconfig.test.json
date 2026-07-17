@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2023", "DOM"],
+    "rootDir": ".",
+    "outDir": ".test-dist",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/lib/date.ts",
+    "src/lib/generator.ts",
+    "src/lib/types.ts",
+    "src/lib/validation.ts",
+    "src/lib/vdot.ts",
+    "tests/**/*.ts"
+  ]
+}
