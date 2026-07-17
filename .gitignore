@@ -33,6 +33,13 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# lokal database
+prisma/dev.db
+prisma/dev.db-journal
+
+# claude (lokale innstillinger)
+.claude/settings.local.json
+
 # vercel
 .vercel
 

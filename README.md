@@ -1,36 +1,53 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🏃 LøpeCoach
 
-## Getting Started
+Skreddersydde løpeprogrammer for coacher og utøvere, bygget på Jack Daniels' treningsprinsipper (VDOT).
 
-First, run the development server:
+## Slik fungerer det
+
+**Coach-siden** (`/coach`):
+- Opprett program: velg utøver, distanse (3000 m → maraton), VDOT, antall uker, økter per uke, ukesvolum og startdato
+- Motoren beregner E/M/T/I/R-farter og pulssoner matematisk fra VDOT (Daniels' formler) og bygger programmet i fire faser: grunntrening → tidlig kvalitet → toppfase → nedtrapping, med restitusjonsuke hver 4. uke og konkurransedag til slutt
+- Rediger hvilken som helst dag manuelt – endringene merkes og overskrives aldri av AI
+- «✨ Forbedre med AI»: Claude (Opus 4.8) forbedrer og personaliserer øktbeskrivelsene
+
+**Utøver-siden** (`/p/<kode>`): en pen, delbar lenke med hele programmet – dag for dag, uke for uke, med fart, pulssoner, nedtelling til konkurransen og «I DAG»-markering. Utskriftsvennlig.
+
+## Kom i gang lokalt
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npx prisma db push   # oppretter SQLite-databasen
+npm run dev          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+AI-forbedring krever en Anthropic API-nøkkel i `.env`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
+ANTHROPIC_API_KEY="sk-ant-..."
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Appen fungerer fullt ut uten nøkkel – den deterministiske Daniels-motoren lager hele programmet selv.
 
-## Learn More
+## Deploy til Vercel
 
-To learn more about Next.js, take a look at the following resources:
+Lokalt brukes SQLite; på Vercel trenger du en Postgres-database (serverless har ikke varig disk):
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Opprett en Postgres-database, f.eks. **Neon** via Vercel Marketplace (gratis nivå holder lenge)
+2. Endre `provider` i [prisma/schema.prisma](prisma/schema.prisma) fra `sqlite` til `postgresql`
+3. Sett miljøvariabler i Vercel-prosjektet:
+   - `DATABASE_URL` – Postgres-URL-en fra Neon
+   - `ANTHROPIC_API_KEY` – (valgfritt) for AI-forbedring
+4. Legg til i `package.json` slik at Prisma genereres og skjemaet pushes ved deploy:
+   ```json
+   "scripts": { "build": "prisma generate && prisma db push && next build" }
+   ```
+5. `npx vercel` (eller koble GitHub-repoet til Vercel)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+> **Merk:** Coach-sidene har ingen innlogging ennå. Utøverlenkene er ugjettbare, men `/coach` er åpen – legg til enkel auth (f.eks. Vercel-passordbeskyttelse eller NextAuth) før du deler URL-en offentlig.
 
-## Deploy on Vercel
+## Teknisk
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Next.js 16** (App Router) + Tailwind CSS 4
+- **Prisma** + SQLite (dev) / Postgres (prod) – hele programmet lagres som JSON per program
+- **Treningsmotor** i [src/lib/vdot.ts](src/lib/vdot.ts) (Daniels' formler: VO2 = -4.60 + 0.182258·v + 0.000104·v²) og [src/lib/generator.ts](src/lib/generator.ts) (faser, volumprogresjon, øktbibliotek)
+- **AI** i `src/app/api/program/[id]/ai/route.ts` – Claude med strukturert JSON-output; manuelt redigerte dager bevares alltid

@@ -1,0 +1,25 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Program {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  athleteName String
+  targetRace  String
+  vdot        Float
+  weeks       Int
+  daysPerWeek Int
+  weeklyKm    Float
+  hrMax       Int?
+  startDate   DateTime
+  notes       String?
+  planJson    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
