@@ -242,6 +242,29 @@ function compactQualitySession(
   };
 }
 
+/**
+ * Langturens andel av ukesvolumet. Langturen skal alltid være ukas lengste
+ * rolige økt, så andelen øker jo færre økter uka har å fordele volumet på.
+ */
+function longRunShare(daysPerWeek: number, dist: string): number {
+  const base: Record<number, number> = { 3: 0.4, 4: 0.34, 5: 0.3, 6: 0.27, 7: 0.25 };
+  const share = base[Math.min(7, Math.max(3, daysPerWeek))] ?? 0.3;
+  if (dist === "maraton") return share + 0.04;
+  if (dist === "halvmaraton") return share + 0.02;
+  return share;
+}
+
+/**
+ * Toppvolumet programmet bygger mot: 10 % økning per oppbyggingsuke
+ * (klassisk tiprosentregel), med et tak så volumet aldri løper løpsk.
+ */
+export function peakWeeklyKm(weeks: number, weeklyKm: number, targetRace: string): number {
+  const [n1, n2] = phaseSplit(weeks);
+  const rampWeeks = Math.max(1, n1 + n2);
+  const cap = targetRace === "maraton" ? 1.5 : 1.45;
+  return weeklyKm * Math.min(Math.pow(1.1, rampWeeks), cap);
+}
+
 /** Maks lengde på langtur per distanse. */
 function longRunCap(dist: string): number {
   switch (dist) {
@@ -268,9 +291,7 @@ export function generatePlan(input: ProgramInput): Plan {
   const { vdot, weeks, daysPerWeek, weeklyKm, hrMax, startDate, targetRace } = input;
   const p = trainingPaces(vdot);
   const [n1, n2, n3, n4] = phaseSplit(weeks);
-  const peakFactor = targetRace === "maraton" ? 1.35 : 1.3;
-  const peakKm = weeklyKm * peakFactor;
-  const rampWeeks = Math.max(1, n1 + n2);
+  const peakKm = peakWeeklyKm(weeks, weeklyKm, targetRace);
   const layout = weekLayout(daysPerWeek);
   const distLabel = DISTANCES[targetRace]?.label ?? targetRace;
   const racePace = racePaceSecPerKm(vdot, targetRace);
@@ -296,7 +317,8 @@ export function generatePlan(input: ProgramInput): Plan {
     } else if (phase === 3) {
       km = peakKm;
     } else {
-      km = weeklyKm + (peakKm - weeklyKm) * (w / rampWeeks);
+      // Oppbygging: 10 % økning per uke fra startvolumet, opp mot toppen
+      km = Math.min(weeklyKm * Math.pow(1.1, w), peakKm);
     }
     // Restitusjonsuke hver 4. uke (ikke i nedtrappingen)
     const isRecovery = phase !== 4 && !isRaceWeek && (w + 1) % 4 === 0;
@@ -331,7 +353,7 @@ export function generatePlan(input: ProgramInput): Plan {
     const availableKm = Math.max(0, km - raceAndShakeoutKm);
     const longKm = isRaceWeek
       ? 0
-      : Math.min(round05(km * (targetRace === "maraton" ? 0.3 : 0.25)), longRunCap(targetRace));
+      : Math.min(round05(km * longRunShare(daysPerWeek, targetRace)), longRunCap(targetRace));
     const minimumEasyKm = 2.5;
     const sessionDays = () =>
       Object.keys(sessions)
@@ -370,10 +392,13 @@ export function generatePlan(input: ProgramInput): Plan {
     const easyUnits = Math.floor(remaining * 2 + 1e-9);
     const baseUnits = eDays.length ? Math.floor(easyUnits / eDays.length) : 0;
     const extraUnits = eDays.length ? easyUnits % eDays.length : 0;
+    // Roligturene skal alltid være kortere enn langturen
+    const easyMaxKm =
+      longKm > 0 ? Math.max(minimumEasyKm, longKm - 1) : Number.POSITIVE_INFINITY;
     [...eDays]
       .sort((a, b) => a - b)
       .forEach((day, index) => {
-        easyKm.set(day, (baseUnits + (index < extraUnits ? 1 : 0)) / 2);
+        easyKm.set(day, Math.min((baseUnits + (index < extraUnits ? 1 : 0)) / 2, easyMaxKm));
       });
 
     for (let dow = 0; dow < 7; dow++) {
@@ -418,7 +443,7 @@ export function generatePlan(input: ProgramInput): Plan {
         days.push({
           dow, date, type: "langtur",
           title: `Langtur ${longKm} km`,
-          desc: `${longKm} km rolig langtur i E-fart (${fmtRange(p.E)}). Jevn, avslappet fart – bygger utholdenhet og robusthet.${extra}`,
+          desc: `${longKm} km rolig langtur i E-fart (${fmtRange(p.E)}). Ukas lengste tur – jevn, avslappet fart som bygger utholdenhet og robusthet.${extra}`,
           km: longKm,
           pace: fmtRange(p.E),
           hr: fmtHr("E", hrMax),
