@@ -41,6 +41,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [revision, setRevision] = useState(program.revision);
+  const [aiInstruction, setAiInstruction] = useState("");
 
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/p/${program.slug}` : `/p/${program.slug}`;
 
@@ -90,10 +91,11 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
     setAiRunning(true);
     setMessage(null);
     try {
+      const instruction = aiInstruction.trim();
       const res = await fetch(`/api/program/${program.id}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revision }),
+        body: JSON.stringify({ revision, instruction: instruction || undefined }),
       });
       const data = await res.json();
       if (res.status === 401) {
@@ -175,6 +177,26 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
               Slett
             </button>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <label htmlFor="aiInstruction" className="block text-sm font-medium text-slate-600 mb-1">
+            Beskjed til AI-en <span className="font-normal text-slate-400">(valgfritt)</span>
+          </label>
+          <textarea
+            id="aiInstruction"
+            value={aiInstruction}
+            onChange={(e) => setAiInstruction(e.target.value)}
+            disabled={aiRunning}
+            maxLength={2000}
+            rows={2}
+            placeholder="F.eks: «Gjør langturene mer varierte», «Bytt 1000 m-intervallene i uke 6–8 til 400-metere» eller «Tonen skal være kort og konkret, ikke motiverende»"
+            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            AI-en følger beskjeden når du klikker «Forbedre med AI». Datoer, ukestruktur og dager du har
+            endret manuelt røres aldri.
+          </p>
         </div>
 
         <div className="mt-4 flex items-center gap-2 flex-wrap">

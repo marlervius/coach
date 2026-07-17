@@ -127,3 +127,7 @@ export function sanitizePlanUpdate(value: unknown, current: Plan): Plan {
 export function parseRevision(value: unknown): number {
   return boundedNumber(value, "Revisjon", 0, Number.MAX_SAFE_INTEGER, true);
 }
+
+export function parseAiInstruction(value: unknown): string | undefined {
+  return optionalString(value, "Beskjed til AI-en", 2_000);
+}
