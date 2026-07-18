@@ -137,3 +137,25 @@ test("endret dato avvises", () => {
   ai.weeks[0].days[1].date = "2026-07-22";
   assert.throws(() => mergeAiImprovements(makePlan(), ai), /endret datoen/);
 });
+
+test("dager kan komme i en annen rekkefølge og kobles fortsatt på dato", () => {
+  const ai = aiWeeks({ title: "Rolig tur med ny tittel" });
+  ai.weeks[0].days.reverse();
+  const merged = mergeAiImprovements(makePlan(), ai);
+  assert.equal(merged.weeks[0].days[0].title, "Hvile");
+  assert.equal(merged.weeks[0].days[1].title, "Rolig tur med ny tittel");
+});
+
+test("utelatte dager beholdes uendret i stedet for å velte hele AI-kallet", () => {
+  const ai = aiWeeks({ title: "Oppdatert rolig tur" });
+  ai.weeks[0].days.splice(0, 1);
+  const merged = mergeAiImprovements(makePlan(), ai);
+  assert.equal(merged.weeks[0].days[0].desc, "Full hviledag.");
+  assert.equal(merged.weeks[0].days[1].title, "Oppdatert rolig tur");
+});
+
+test("dupliserte datoer avvises", () => {
+  const ai = aiWeeks();
+  ai.weeks[0].days.push({ ...ai.weeks[0].days[1] });
+  assert.throws(() => mergeAiImprovements(makePlan(), ai), /dupliserte datoen/);
+});

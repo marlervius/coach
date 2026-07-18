@@ -59,7 +59,7 @@ export const IMPROVEMENTS_SCHEMA = {
 interface AiImprovement {
   weeks: Array<{
     nr: number;
-    focus: string;
+    focus?: string;
     days: Array<{ date: string; type?: string; title: string; desc: string }>;
   }>;
 }
@@ -76,25 +76,50 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
     throw new Error("AI-svaret hadde feil struktur");
   }
   const result = value as Partial<AiImprovement>;
-  if (!Array.isArray(result.weeks) || result.weeks.length !== plan.weeks.length) {
-    throw new Error("AI-svaret hadde feil antall uker");
+  if (!Array.isArray(result.weeks) || result.weeks.length === 0) {
+    throw new Error("AI-svaret manglet uker");
   }
   const paceByKey = new Map(plan.paces.map((card) => [card.key, card]));
+  const planWeeksByNr = new Map(plan.weeks.map((week) => [week.nr, week]));
+  const improvementsByWeek = new Map<number, AiImprovement["weeks"][number]>();
 
-  const weeks = plan.weeks.map((week, weekIndex) => {
-    const improvement = result.weeks![weekIndex];
+  for (const improvement of result.weeks) {
     if (
-      improvement?.nr !== week.nr ||
-      !Array.isArray(improvement.days) ||
-      improvement.days.length !== week.days.length
+      !Number.isInteger(improvement?.nr) ||
+      !planWeeksByNr.has(improvement.nr) ||
+      !Array.isArray(improvement.days)
     ) {
-      throw new Error(`AI-svaret hadde feil struktur i uke ${week.nr}`);
+      throw new Error(`AI-svaret hadde ukjent ukenummer ${improvement?.nr ?? ""}`);
     }
-    const days = week.days.map((day, dayIndex) => {
-      const improvedDay = improvement.days[dayIndex];
-      if (improvedDay?.date !== day.date) {
-        throw new Error(`AI-svaret endret datoen ${day.date}`);
+    if (improvementsByWeek.has(improvement.nr)) {
+      throw new Error(`AI-svaret dupliserte uke ${improvement.nr}`);
+    }
+
+    const allowedDates = new Set(
+      planWeeksByNr.get(improvement.nr)!.days.map((day) => day.date)
+    );
+    const seenDates = new Set<string>();
+    for (const day of improvement.days) {
+      if (typeof day?.date !== "string" || !allowedDates.has(day.date)) {
+        throw new Error(`AI-svaret endret datoen ${day?.date ?? ""}`);
       }
+      if (seenDates.has(day.date)) {
+        throw new Error(`AI-svaret dupliserte datoen ${day.date}`);
+      }
+      seenDates.add(day.date);
+    }
+    improvementsByWeek.set(improvement.nr, improvement);
+  }
+
+  const weeks = plan.weeks.map((week) => {
+    const improvement = improvementsByWeek.get(week.nr);
+    if (!improvement) return week;
+    const improvementsByDate = new Map(
+      improvement.days.map((day) => [day.date, day])
+    );
+    const days = week.days.map((day) => {
+      const improvedDay = improvementsByDate.get(day.date);
+      if (!improvedDay) return day;
       if (day.edited) return day;
 
       const title = aiText(improvedDay.title, "Økttittel", 160);
@@ -133,7 +158,10 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
     });
     return {
       ...week,
-      focus: aiText(improvement.focus, "Ukefokus", 600),
+      focus:
+        improvement.focus === undefined
+          ? week.focus
+          : aiText(improvement.focus, "Ukefokus", 600),
       days,
     };
   });
