@@ -1,4 +1,5 @@
-import type { DayType, Plan } from "./types";
+import { DAY_NAMES, TYPE_LABELS } from "./types";
+import type { AiChangeReport, DayType, Plan, PlanDay } from "./types";
 import {
   inferRunningType,
   RUNNING_TYPES,
@@ -13,7 +14,7 @@ import {
 export const IMPROVEMENTS_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["weeks"],
+  required: ["weeks", "report"],
   properties: {
     weeks: {
       type: "array",
@@ -57,6 +58,28 @@ export const IMPROVEMENTS_SCHEMA = {
         },
       },
     },
+    report: {
+      type: "object",
+      additionalProperties: false,
+      required: ["summary", "changes"],
+      properties: {
+        summary: { type: "string" },
+        changes: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["weekNr", "date", "change", "reason"],
+            properties: {
+              weekNr: { type: "integer" },
+              date: { type: "string" },
+              change: { type: "string" },
+              reason: { type: "string" },
+            },
+          },
+        },
+      },
+    },
   },
 } as const;
 
@@ -75,6 +98,15 @@ interface AiImprovement {
       hr?: string;
     }>;
   }>;
+  report?: {
+    summary?: string;
+    changes?: Array<{
+      weekNr?: number;
+      date?: string;
+      change?: string;
+      reason?: string;
+    }>;
+  };
 }
 
 function aiText(value: unknown, field: string, max: number): string {
@@ -214,4 +246,103 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
     };
   });
   return { ...plan, weeks };
+}
+
+function dayChanges(before: PlanDay, after: PlanDay): string[] {
+  const changes: string[] = [];
+  if (before.type !== after.type) {
+    changes.push(`Økttype: ${TYPE_LABELS[before.type]} → ${TYPE_LABELS[after.type]}.`);
+  }
+  if (before.title !== after.title) changes.push(`Tittel: «${before.title}» → «${after.title}».`);
+  if (before.desc !== after.desc) changes.push("Øktbeskrivelsen ble oppdatert.");
+  if (before.km !== after.km) changes.push(`Distanse: ${before.km} → ${after.km} km.`);
+  if (before.pace !== after.pace) {
+    changes.push(`Fart: ${before.pace ?? "ikke angitt"} → ${after.pace ?? "ikke angitt"}.`);
+  }
+  if (before.hr !== after.hr) {
+    changes.push(`Puls: ${before.hr ?? "ikke angitt"} → ${after.hr ?? "ikke angitt"}.`);
+  }
+  return changes;
+}
+
+function fallbackReason(changes: string[]): string {
+  const text = changes.join(" ");
+  if (text.includes("Økttype:") || text.includes("Fart:") || text.includes("Puls:")) {
+    return "For at økttype, fargekode og intensitetssone skal samsvare med øktens innhold.";
+  }
+  if (text.includes("Distanse:") || text.includes("Tittel:")) {
+    return "For at distanse, overskrift og øktbeskrivelse skal være innbyrdes konsistente.";
+  }
+  return "For å gjøre planen tydeligere og faglig mer presis for utøveren.";
+}
+
+export function buildAiChangeReport(before: Plan, after: Plan, value: unknown): AiChangeReport {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("AI-rapporten hadde feil struktur");
+  }
+  const report = (value as Partial<AiImprovement>).report;
+  if (!report || !Array.isArray(report.changes)) {
+    throw new Error("AI-svaret manglet endringsrapport");
+  }
+  const modelSummary = aiText(report.summary, "Rapportsammendrag", 1_000);
+  const reasons = new Map<string, string>();
+  for (const item of report.changes) {
+    const reportWeek = before.weeks.find((week) => week.nr === item.weekNr);
+    if (!Number.isInteger(item.weekNr) || !reportWeek) {
+      throw new Error("AI-rapporten hadde ukjent ukenummer");
+    }
+    const date = aiOptionalText(item.date, "Rapportdato", 10);
+    if (date && !reportWeek.days.some((day) => day.date === date)) {
+      throw new Error("AI-rapporten hadde ukjent dato");
+    }
+    aiText(item.change, "Rapportendring", 1_000);
+    const reason = aiText(item.reason, "Rapportbegrunnelse", 1_000);
+    reasons.set(`${item.weekNr}:${date ?? ""}`, reason);
+  }
+
+  const changes: AiChangeReport["changes"] = [];
+  for (let weekIndex = 0; weekIndex < before.weeks.length; weekIndex++) {
+    const oldWeek = before.weeks[weekIndex];
+    const newWeek = after.weeks[weekIndex];
+    const weekChanges: string[] = [];
+    if (oldWeek.phaseName !== newWeek.phaseName) {
+      weekChanges.push(`Fasenavn: «${oldWeek.phaseName}» → «${newWeek.phaseName}».`);
+    }
+    if (oldWeek.focus !== newWeek.focus) weekChanges.push("Ukefokuset ble oppdatert.");
+    if (oldWeek.km !== newWeek.km) weekChanges.push(`Ukessum: ${oldWeek.km} → ${newWeek.km} km.`);
+    if (weekChanges.length > 0) {
+      changes.push({
+        weekNr: oldWeek.nr,
+        scope: `Uke ${oldWeek.nr}`,
+        change: weekChanges.join(" "),
+        reason:
+          reasons.get(`${oldWeek.nr}:`) ??
+          (weekChanges.some((change) => change.startsWith("Ukessum:"))
+            ? "Ukesummen er beregnet på nytt fra distansene i ukens økter."
+            : "For å gjøre ukens progresjon og hensikt tydeligere."),
+      });
+    }
+
+    for (let dayIndex = 0; dayIndex < oldWeek.days.length; dayIndex++) {
+      const oldDay = oldWeek.days[dayIndex];
+      const newDay = newWeek.days[dayIndex];
+      const actualChanges = dayChanges(oldDay, newDay);
+      if (actualChanges.length === 0) continue;
+      changes.push({
+        weekNr: oldWeek.nr,
+        date: oldDay.date,
+        scope: `Uke ${oldWeek.nr}, ${DAY_NAMES[oldDay.dow].toLowerCase()} ${oldDay.date}`,
+        change: actualChanges.join(" "),
+        reason: reasons.get(`${oldWeek.nr}:${oldDay.date}`) ?? fallbackReason(actualChanges),
+      });
+    }
+  }
+
+  return {
+    summary:
+      changes.length === 0
+        ? "AI-en gjennomgikk hele planen. Ingen endringer var nødvendige."
+        : modelSummary,
+    changes,
+  };
 }
