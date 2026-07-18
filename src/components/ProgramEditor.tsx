@@ -125,7 +125,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
       } else {
         setPlan(data.plan);
         setRevision(data.revision);
-        setMessage("Programmet er forbedret av AI. Se over endringene!");
+        setMessage("Programmet er forbedret og konsistenskontrollert av AI. Se over endringene!");
       }
     } catch {
       setMessage("AI-forbedring feilet – sjekk tilkoblingen.");
@@ -212,8 +212,8 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
             className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
           />
           <p className="text-xs text-slate-400 mt-1">
-            AI-en følger beskjeden når du klikker «Forbedre med AI». Datoer, ukestruktur og dager du har
-            endret manuelt røres aldri.
+            AI-en følger beskjeden og kvalitetssikrer hele planen, også dager du har endret manuelt.
+            Datoer og grunnstrukturen i programmet beholdes.
           </p>
         </div>
 

@@ -21,7 +21,7 @@ function makePlan(): Plan {
         phase: 2,
         phaseName: "Tidlig kvalitet",
         focus: "Fokus",
-        km: 13,
+        km: 6.5,
         days: [
           { dow: 0, date: "2026-07-20", type: "hvile", title: "Hvile", desc: "Full hviledag.", km: 0 },
           {
@@ -40,19 +40,40 @@ function makePlan(): Plan {
   };
 }
 
-function aiWeeks(dayOverrides: Partial<{ type: string; title: string; desc: string }> = {}) {
+function aiWeeks(
+  dayOverrides: Partial<{
+    type: string;
+    title: string;
+    desc: string;
+    km: number;
+    pace: string;
+    hr: string;
+  }> = {}
+) {
   return {
     weeks: [
       {
         nr: 1,
+        phaseName: "Tidlig kvalitet",
         focus: "Nytt fokus",
         days: [
-          { date: "2026-07-20", type: "hvile", title: "Hvile", desc: "Hvil godt." },
+          {
+            date: "2026-07-20",
+            type: "hvile",
+            title: "Hvile",
+            desc: "Hvil godt.",
+            km: 0,
+            pace: "",
+            hr: "",
+          },
           {
             date: "2026-07-21",
             type: "rolig",
             title: "Rolig 6.5 km",
             desc: "Fin tur.",
+            km: 6.5,
+            pace: "6:30–7:28/km",
+            hr: "65–79 % av makspuls",
             ...dayOverrides,
           },
         ],
@@ -119,17 +140,80 @@ test("ingen dag kan gjøres om til konkurranse", () => {
   assert.equal(day.pace, "6:30–7:28/km");
 });
 
-test("manuelt endrede dager røres ikke", () => {
+test("manuelt endrede dager blir også kvalitetssikret", () => {
   const plan = makePlan();
   plan.weeks[0].days[1].edited = true;
   const merged = mergeAiImprovements(
     plan,
-    aiWeeks({ type: "intervall", title: "Noe annet", desc: "Noe annet." })
+    aiWeeks({
+      type: "intervall",
+      title: "5 × 3 min intervall",
+      desc: "Kontrollert I-fart med rolig joggepause.",
+    })
   );
   const day = merged.weeks[0].days[1];
-  assert.equal(day.type, "rolig");
-  assert.equal(day.title, "Rolig 6.5 km");
-  assert.equal(day.desc, "Rolig tur.");
+  assert.equal(day.type, "intervall");
+  assert.equal(day.title, "5 × 3 min intervall");
+  assert.equal(day.pace, "5:05–5:18/km");
+  assert.equal(day.edited, true);
+});
+
+test("AI kan rette distanse og serveren regner ukesoverskriften på nytt", () => {
+  const plan = makePlan();
+  plan.weeks[0].km = 99;
+  const merged = mergeAiImprovements(
+    plan,
+    aiWeeks({
+      title: "Rolig 8 km",
+      desc: "Løp 8 km kontrollert i E-fart.",
+      km: 8,
+    })
+  );
+  assert.equal(merged.weeks[0].days[1].km, 8);
+  assert.equal(merged.weeks[0].km, 8);
+});
+
+test("serveren retter ukessummen også når AI utelater en uke", () => {
+  const plan = makePlan();
+  plan.weeks.push({
+    ...structuredClone(plan.weeks[0]),
+    nr: 2,
+    km: 99,
+    days: plan.weeks[0].days.map((day) => ({
+      ...day,
+      date: day.date === "2026-07-20" ? "2026-07-27" : "2026-07-28",
+    })),
+  });
+  const merged = mergeAiImprovements(plan, aiWeeks());
+  assert.equal(merged.weeks[1].km, 6.5);
+});
+
+test("serveren normaliserer fart og puls fra korrigert økttype", () => {
+  const merged = mergeAiImprovements(
+    makePlan(),
+    aiWeeks({
+      type: "terskel",
+      title: "3 × 8 min terskel",
+      desc: "Kontrollert terskelarbeid.",
+      pace: "feil fart",
+      hr: "feil puls",
+    })
+  );
+  const day = merged.weeks[0].days[1];
+  assert.equal(day.pace, "5:37–5:46/km");
+  assert.equal(day.hr, "88–92 % av makspuls");
+});
+
+test("hviledager holdes på null kilometer uten fart og puls", () => {
+  const ai = aiWeeks();
+  ai.weeks[0].days[0].km = 5;
+  ai.weeks[0].days[0].pace = "5:00/km";
+  ai.weeks[0].days[0].hr = "90 %";
+  const merged = mergeAiImprovements(makePlan(), ai);
+  const day = merged.weeks[0].days[0];
+  assert.equal(day.km, 0);
+  assert.equal(day.pace, undefined);
+  assert.equal(day.hr, undefined);
 });
 
 test("endret dato avvises", () => {

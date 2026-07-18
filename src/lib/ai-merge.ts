@@ -6,9 +6,9 @@ import {
 } from "./training-type";
 
 /**
- * AI-en får returnere tekstfeltene (tittel, beskrivelse, ukefokus) pluss
- * økttype. Fart og pulssone settes av serveren ut fra økttypen, så
- * fargemerking og soner alltid stemmer med innholdet i økta.
+ * AI-en får foreslå alle innholdsfeltene i planen. Datoer, ukedager,
+ * ukenummer og fase-ID er fortsatt strukturelle nøkler og kan ikke endres.
+ * Serveren normaliserer økttype, soner og ukesvolum etterpå.
  */
 export const IMPROVEMENTS_SCHEMA = {
   type: "object",
@@ -20,16 +20,17 @@ export const IMPROVEMENTS_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["nr", "focus", "days"],
+        required: ["nr", "phaseName", "focus", "days"],
         properties: {
           nr: { type: "integer" },
+          phaseName: { type: "string" },
           focus: { type: "string" },
           days: {
             type: "array",
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["date", "type", "title", "desc"],
+              required: ["date", "type", "title", "desc", "km", "pace", "hr"],
               properties: {
                 date: { type: "string" },
                 type: {
@@ -47,6 +48,9 @@ export const IMPROVEMENTS_SCHEMA = {
                 },
                 title: { type: "string" },
                 desc: { type: "string" },
+                km: { type: "number", minimum: 0, maximum: 300 },
+                pace: { type: "string" },
+                hr: { type: "string" },
               },
             },
           },
@@ -59,8 +63,17 @@ export const IMPROVEMENTS_SCHEMA = {
 interface AiImprovement {
   weeks: Array<{
     nr: number;
+    phaseName?: string;
     focus?: string;
-    days: Array<{ date: string; type?: string; title: string; desc: string }>;
+    days: Array<{
+      date: string;
+      type?: string;
+      title: string;
+      desc: string;
+      km?: number;
+      pace?: string;
+      hr?: string;
+    }>;
   }>;
 }
 
@@ -69,6 +82,22 @@ function aiText(value: unknown, field: string, max: number): string {
   const text = value.trim();
   if (!text || text.length > max) throw new Error(`${field} har ugyldig lengde`);
   return text;
+}
+
+function aiOptionalText(value: unknown, field: string, max: number): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") throw new Error(`${field} har feil format`);
+  const text = value.trim();
+  if (text.length > max) throw new Error(`${field} har ugyldig lengde`);
+  return text || undefined;
+}
+
+function aiKm(value: unknown, current: number): number {
+  if (value === undefined) return current;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 300) {
+    throw new Error("Distanse har ugyldig verdi");
+  }
+  return Math.round(value * 2) / 2;
 }
 
 export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
@@ -113,14 +142,16 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
 
   const weeks = plan.weeks.map((week) => {
     const improvement = improvementsByWeek.get(week.nr);
-    if (!improvement) return week;
+    if (!improvement) {
+      const km = Math.round(week.days.reduce((sum, day) => sum + day.km, 0) * 2) / 2;
+      return { ...week, km };
+    }
     const improvementsByDate = new Map(
       improvement.days.map((day) => [day.date, day])
     );
     const days = week.days.map((day) => {
       const improvedDay = improvementsByDate.get(day.date);
       if (!improvedDay) return day;
-      if (day.edited) return day;
 
       const title = aiText(improvedDay.title, "Økttittel", 160);
       const desc = aiText(improvedDay.desc, "Øktbeskrivelse", 4_000);
@@ -136,10 +167,20 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
         if (inferred) type = inferred;
       }
 
-      // Ved typebytte følger fart og pulssone den nye typen.
-      let pace = day.pace;
-      let hr = day.hr;
-      if (type !== day.type) {
+      let km = aiKm(improvedDay.km, day.km);
+      let pace = aiOptionalText(improvedDay.pace, "Fart", 160);
+      let hr = aiOptionalText(improvedDay.hr, "Pulssone", 200);
+
+      // Hvile og konkurransedistanse er strukturelle sikkerhetsgrenser.
+      if (day.type === "hvile") {
+        km = 0;
+        pace = undefined;
+        hr = undefined;
+      } else if (day.type === "konkurranse") {
+        km = day.km;
+      } else {
+        // Ordinære løpeøkter bruker planens VDOT-beregnede standardsone.
+        // Dermed kan ikke fritekst og visningsfelter havne i ulike intensiteter.
         const card = paceByKey.get(TYPE_TO_PACE_KEY[type] ?? "");
         if (card) {
           pace = card.range;
@@ -154,14 +195,21 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
         hr,
         title,
         desc,
+        km,
       };
     });
+    const km = Math.round(days.reduce((sum, day) => sum + day.km, 0) * 2) / 2;
     return {
       ...week,
+      phaseName:
+        improvement.phaseName === undefined
+          ? week.phaseName
+          : aiText(improvement.phaseName, "Fasenavn", 160),
       focus:
         improvement.focus === undefined
           ? week.focus
           : aiText(improvement.focus, "Ukefokus", 600),
+      km,
       days,
     };
   });
