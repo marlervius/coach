@@ -57,6 +57,19 @@ export interface Plan {
   guidance?: PlanGuidance;
 }
 
+export interface AiChangeReportItem {
+  weekNr: number;
+  date?: string;
+  scope: string;
+  change: string;
+  reason: string;
+}
+
+export interface AiChangeReport {
+  summary: string;
+  changes: AiChangeReportItem[];
+}
+
 export interface ProgramInput {
   athleteName: string;
   targetRace: string;

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Plan, PlanDay, DayType, PaceCard } from "@/lib/types";
+import type { AiChangeReport, Plan, PlanDay, DayType, PaceCard } from "@/lib/types";
 import { DAY_NAMES, TYPE_LABELS } from "@/lib/types";
 import { DISTANCES, fmtDuration } from "@/lib/vdot";
 import { TrainingGuidance } from "@/components/TrainingGuidance";
@@ -48,6 +48,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   const [copied, setCopied] = useState(false);
   const [revision, setRevision] = useState(program.revision);
   const [aiInstruction, setAiInstruction] = useState("");
+  const [aiReport, setAiReport] = useState<AiChangeReport | null>(null);
   const qualityReport = useMemo(
     () => auditPlan(plan, {
       daysPerWeek: program.daysPerWeek,
@@ -64,6 +65,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   async function savePlan(next: Plan): Promise<boolean> {
     setSaving(true);
     setMessage(null);
+    setAiReport(null);
     try {
       const res = await fetch(`/api/program/${program.id}`, {
         method: "PUT",
@@ -106,6 +108,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   async function runAI() {
     setAiRunning(true);
     setMessage(null);
+    setAiReport(null);
     try {
       const instruction = aiInstruction.trim();
       const res = await fetch(`/api/program/${program.id}/ai`, {
@@ -125,6 +128,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
       } else {
         setPlan(data.plan);
         setRevision(data.revision);
+        setAiReport(data.report);
         setMessage("Programmet er forbedret og konsistenskontrollert av AI. Se over endringene!");
       }
     } catch {
@@ -213,7 +217,8 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
           />
           <p className="text-xs text-slate-400 mt-1">
             AI-en følger beskjeden og kvalitetssikrer hele planen, også dager du har endret manuelt.
-            Datoer og grunnstrukturen i programmet beholdes.
+            Datoer og grunnstrukturen i programmet beholdes. Etterpå får du en rapport over hva som
+            ble endret og hvorfor.
           </p>
         </div>
 
@@ -228,6 +233,34 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
           {saving && <span className="text-sm text-slate-400">Lagrer…</span>}
         </div>
         {message && <p className="mt-3 text-sm text-violet-700 bg-violet-50 rounded-lg px-3 py-2">{message}</p>}
+        {aiReport && (
+          <section
+            aria-labelledby="ai-report-heading"
+            className="mt-4 rounded-xl border border-violet-200 bg-violet-50/70 p-4"
+          >
+            <h2 id="ai-report-heading" className="font-semibold text-violet-950">
+              AI-endringsrapport
+            </h2>
+            <p className="mt-1 text-sm text-violet-900">{aiReport.summary}</p>
+            {aiReport.changes.length === 0 ? (
+              <p className="mt-3 text-sm text-violet-700">Ingen endringer ble lagret.</p>
+            ) : (
+              <ol className="mt-3 space-y-3">
+                {aiReport.changes.map((item, index) => (
+                  <li key={`${item.weekNr}-${item.date ?? "uke"}-${index}`} className="rounded-lg bg-white p-3 shadow-sm">
+                    <p className="text-sm font-semibold text-slate-900">{item.scope}</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      <span className="font-medium">Endret:</span> {item.change}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      <span className="font-medium">Hvorfor:</span> {item.reason}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        )}
       </div>
 
       <PlanQualityPanel report={qualityReport} />

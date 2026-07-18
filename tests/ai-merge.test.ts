@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeAiImprovements } from "../src/lib/ai-merge";
+import { buildAiChangeReport, mergeAiImprovements } from "../src/lib/ai-merge";
 import type { Plan } from "../src/lib/types";
 
 function makePlan(): Plan {
@@ -51,6 +51,17 @@ function aiWeeks(
   }> = {}
 ) {
   return {
+    report: {
+      summary: "Planen er gjort mer konsistent.",
+      changes: [
+        {
+          weekNr: 1,
+          date: "2026-07-21",
+          change: "Den rolige økten ble oppdatert.",
+          reason: "For at øktens felter skal stemme sammen.",
+        },
+      ],
+    },
     weeks: [
       {
         nr: 1,
@@ -171,6 +182,33 @@ test("AI kan rette distanse og serveren regner ukesoverskriften på nytt", () =>
   );
   assert.equal(merged.weeks[0].days[1].km, 8);
   assert.equal(merged.weeks[0].km, 8);
+});
+
+test("endringsrapporten bygges fra det som faktisk ble lagret", () => {
+  const before = makePlan();
+  const ai = aiWeeks({
+    title: "Rolig 8 km",
+    desc: "Løp 8 km kontrollert i E-fart.",
+    km: 8,
+  });
+  const after = mergeAiImprovements(before, ai);
+  const report = buildAiChangeReport(before, after, ai);
+  const day = report.changes.find((item) => item.date === "2026-07-21");
+
+  assert.equal(report.summary, "Planen er gjort mer konsistent.");
+  assert.match(day?.change ?? "", /Distanse: 6.5 → 8 km/);
+  assert.match(day?.change ?? "", /Tittel:/);
+  assert.equal(day?.reason, "For at øktens felter skal stemme sammen.");
+  assert.ok(report.changes.some((item) => item.change.includes("Ukessum: 6.5 → 8 km")));
+});
+
+test("endringsrapport er obligatorisk", () => {
+  const before = makePlan();
+  const ai = aiWeeks();
+  const after = mergeAiImprovements(before, ai);
+  const withoutReport: Partial<typeof ai> = structuredClone(ai);
+  delete withoutReport.report;
+  assert.throws(() => buildAiChangeReport(before, after, withoutReport), /manglet endringsrapport/);
 });
 
 test("serveren retter ukessummen også når AI utelater en uke", () => {
