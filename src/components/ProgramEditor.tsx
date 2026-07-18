@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Plan, PlanDay, DayType } from "@/lib/types";
+import type { Plan, PlanDay, DayType, PaceCard } from "@/lib/types";
 import { DAY_NAMES, TYPE_LABELS } from "@/lib/types";
 import { DISTANCES } from "@/lib/vdot";
 import { TrainingGuidance } from "@/components/TrainingGuidance";
@@ -16,6 +16,15 @@ const TYPE_COLORS: Record<DayType, string> = {
   repetisjoner: "bg-purple-100 text-purple-800",
   maratonfart: "bg-amber-100 text-amber-800",
   konkurranse: "bg-yellow-200 text-yellow-900",
+};
+
+const TYPE_TO_PACE_KEY: Partial<Record<DayType, string>> = {
+  rolig: "E",
+  langtur: "E",
+  maratonfart: "M",
+  terskel: "T",
+  intervall: "I",
+  repetisjoner: "R",
 };
 
 interface ProgramMeta {
@@ -234,6 +243,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
                 <DayEditForm
                   key={key}
                   day={day}
+                  paces={plan.paces}
                   onSave={(patch) => updateDay(wi, di, patch)}
                   onCancel={() => setEditing(null)}
                   disabled={saving}
@@ -285,11 +295,13 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
 
 function DayEditForm({
   day,
+  paces,
   onSave,
   onCancel,
   disabled,
 }: {
   day: PlanDay;
+  paces: PaceCard[];
   onSave: (patch: Partial<PlanDay>) => Promise<void>;
   onCancel: () => void;
   disabled: boolean;
@@ -304,16 +316,56 @@ function DayEditForm({
   });
   const field = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500";
 
+  function selectType(type: DayType) {
+    const card = paces.find((pace) => pace.key === TYPE_TO_PACE_KEY[type]);
+    setForm((current) => ({
+      ...current,
+      type,
+      km: type === "hvile" ? "0" : current.km,
+      pace: card?.range ?? (type === "hvile" ? "" : current.pace),
+      hr: card?.hr ?? (type === "hvile" ? "" : current.hr),
+    }));
+  }
+
   return (
     <div className="bg-emerald-50/50 border-2 border-emerald-300 rounded-lg p-4 space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <select disabled={disabled} className={field} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as DayType })}>
-          {Object.entries(TYPE_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <input disabled={disabled} className={field + " sm:col-span-2"} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Tittel" />
-      </div>
+      <fieldset disabled={disabled}>
+        <legend className="text-sm font-semibold text-slate-700 mb-2">
+          Økttype og fargekode
+        </legend>
+        <div className="flex flex-wrap gap-2">
+          {(Object.entries(TYPE_LABELS) as Array<[DayType, string]>).map(([type, label]) => {
+            const selected = form.type === type;
+            return (
+              <button
+                key={type}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => selectType(type)}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
+                  TYPE_COLORS[type]
+                } ${
+                  selected
+                    ? "border-current ring-2 ring-offset-1 ring-slate-500"
+                    : "border-transparent opacity-70 hover:opacity-100"
+                } disabled:opacity-40`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-slate-500 mt-2">
+          Valget styrer badge og farge. Fart og pulssone fylles automatisk fra den valgte økttypen.
+        </p>
+      </fieldset>
+      <input
+        disabled={disabled}
+        className={field}
+        value={form.title}
+        onChange={(e) => setForm({ ...form, title: e.target.value })}
+        placeholder="Tittel"
+      />
       <textarea disabled={disabled} className={field} rows={3} value={form.desc} onChange={(e) => setForm({ ...form, desc: e.target.value })} placeholder="Beskrivelse av økten" />
       <div className="grid grid-cols-3 gap-3">
         <input disabled={disabled} className={field} type="number" step="0.5" min="0" max="300" value={form.km} onChange={(e) => setForm({ ...form, km: e.target.value })} placeholder="km" />
