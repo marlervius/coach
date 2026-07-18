@@ -40,9 +40,21 @@ export interface PaceCard {
   desc: string;
 }
 
+export interface CoachingPrinciple {
+  title: string;
+  desc: string;
+}
+
+export interface PlanGuidance {
+  methodology: string;
+  principles: CoachingPrinciple[];
+}
+
 export interface Plan {
   paces: PaceCard[];
   weeks: PlanWeek[];
+  /** Praktiske regler som gjør planen trygg å styre etter i hverdagen. */
+  guidance?: PlanGuidance;
 }
 
 export interface ProgramInput {

@@ -32,8 +32,8 @@ export default async function NewProgramPage({
       </Link>
       <h1 className="text-3xl font-bold tracking-tight mt-2 mb-1">Nytt treningsprogram</h1>
       <p className="text-slate-500 mb-8">
-        Programmet genereres automatisk basert på Jack Daniels&apos; treningsprinsipper. Du kan
-        redigere alle økter etterpå.
+        Individuell intensitetsstyring, trygg progresjon og konkurransespesifikk periodisering
+        inspirert av Daniels, Lydiard og Canova. Du kan redigere alle økter etterpå.
       </p>
 
       <form action={createProgram} className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
@@ -98,6 +98,9 @@ export default async function NewProgramPage({
         <div>
           <label className={label} htmlFor="notes">Notater (valgfritt)</label>
           <textarea className={field} id="notes" name="notes" rows={2} placeholder="F.eks. skadehistorikk, tilgang til bane, osv." />
+          <p className="text-xs text-slate-400 mt-1">
+            Brukes som coachkontekst ved AI-tilpasning; gjennomgå alltid planen ved skade eller sykdom.
+          </p>
         </div>
 
         <button

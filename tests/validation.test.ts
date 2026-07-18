@@ -48,6 +48,7 @@ test("planoppdatering bevarer struktur og markerer endret dag", () => {
   assert.equal(updated.weeks[0].days[0].title, "Tilpasset hviledag");
   assert.equal(updated.weeks[0].days[0].edited, true);
   assert.deepEqual(updated.paces, current.paces);
+  assert.deepEqual(updated.guidance, current.guidance);
   assert.equal(updated.weeks[0].days[0].date, current.weeks[0].days[0].date);
 });
 

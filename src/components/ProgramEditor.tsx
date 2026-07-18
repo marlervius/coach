@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Plan, PlanDay, DayType } from "@/lib/types";
 import { DAY_NAMES, TYPE_LABELS } from "@/lib/types";
 import { DISTANCES } from "@/lib/vdot";
+import { TrainingGuidance } from "@/components/TrainingGuidance";
 
 const TYPE_COLORS: Record<DayType, string> = {
   hvile: "bg-slate-100 text-slate-600",
@@ -211,6 +212,8 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
         </div>
         {message && <p className="mt-3 text-sm text-violet-700 bg-violet-50 rounded-lg px-3 py-2">{message}</p>}
       </div>
+
+      <TrainingGuidance guidance={plan.guidance} />
 
       {/* Uker */}
       {plan.weeks.map((week, wi) => (

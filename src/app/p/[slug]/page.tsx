@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { DISTANCES } from "@/lib/vdot";
 import { DAY_NAMES, TYPE_LABELS, type Plan, type DayType } from "@/lib/types";
 import { daysBetween, todayInTimeZone } from "@/lib/date";
+import { TrainingGuidance } from "@/components/TrainingGuidance";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -70,6 +71,8 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
         </div>
       </section>
 
+      <TrainingGuidance guidance={plan.guidance} />
+
       {/* Uker */}
       {plan.weeks.map((week, wi) => (
         <details
@@ -134,7 +137,7 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
       ))}
 
       <footer className="text-center text-sm text-slate-400 py-8">
-        Programmet er laget av din coach · basert på Jack Daniels&apos; treningsprinsipper
+        Programmet er laget av din coach · individuelt dosert og periodisert
       </footer>
     </main>
   );

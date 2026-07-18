@@ -121,7 +121,7 @@ export function sanitizePlanUpdate(value: unknown, current: Plan): Plan {
     return { ...currentWeek, km, days };
   });
 
-  return { paces: current.paces, weeks };
+  return { ...current, weeks };
 }
 
 export function parseRevision(value: unknown): number {
