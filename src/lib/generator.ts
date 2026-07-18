@@ -17,6 +17,7 @@
  */
 import {
   DISTANCES,
+  fmtDuration,
   fmtHr,
   fmtRange,
   fmtSplit,
@@ -89,7 +90,8 @@ function qualitySession(
   weeksToRace: number,
   weekKm: number,
   p: TrainingPaces,
-  vdot: number
+  vdot: number,
+  targetRacePace?: number
 ): Session {
   const big = weekKm >= 65;
   const medium = weekKm >= 40;
@@ -188,7 +190,7 @@ function qualitySession(
   }
   // Fase 4: konkurransespesifikt
   if (slot === 1) {
-    const rp = fmtTime(racePaceSecPerKm(vdot, dist));
+    const rp = fmtTime(targetRacePace ?? racePaceSecPerKm(vdot, dist));
     if (dist === "maraton")
       return {
         type: "maratonfart",
@@ -234,7 +236,7 @@ function compactQualitySession(
   const km = Math.max(3, round05(maxKm));
   if (phase === 2) {
     return {
-      type: "repetisjoner",
+      type: "rolig",
       title: `${km} km rolig + stigningsløp`,
       desc: `${km} km totalt i E-fart (${fmtRange(p.E)}). Etter rolig oppvarming: 6 × 20 sek kontrollerte stigningsløp med full gå-/joggepause. Dette gir fart og god teknikk uten å sprenge ukesvolumet.`,
       km,
@@ -286,23 +288,38 @@ function longRunShare(daysPerWeek: number, dist: string): number {
  * enn den klassiske tiprosentregelen: høyere startvolum tåler mindre prosentvis
  * økning, og kortere distanser krever ikke maratonvolum.
  */
-export function peakWeeklyKm(weeks: number, weeklyKm: number, targetRace: string): number {
+export function peakWeeklyKm(
+  weeks: number,
+  weeklyKm: number,
+  targetRace: string,
+  experienceLevel: ProgramInput["experienceLevel"] = "mosjonist"
+): number {
   const [n1, n2] = phaseSplit(weeks);
   const rampWeeks = Math.max(1, n1 + n2);
-  const rampRate = weeklyKm >= 80 ? 1.04 : weeklyKm >= 50 ? 1.05 : 1.07;
+  const volumeRate = weeklyKm >= 80 ? 1.04 : weeklyKm >= 50 ? 1.05 : 1.07;
+  const experienceRate =
+    experienceLevel === "ny" ? 1.04 : experienceLevel === "erfaren" ? 1.07 : 1.06;
+  const rampRate = Math.min(volumeRate, experienceRate);
   const cap = targetRace === "maraton" ? 1.45 : targetRace === "halvmaraton" ? 1.4 : 1.35;
   return weeklyKm * Math.min(Math.pow(rampRate, rampWeeks), cap);
 }
 
 /** Antall tydelige kvalitetsdager som belastningen faktisk gir rom for. */
-function qualityDayLimit(daysPerWeek: number, weekKm: number, isRecovery: boolean): 1 | 2 {
-  if (isRecovery || daysPerWeek <= 3 || weekKm < 30) return 1;
+function qualityDayLimit(
+  daysPerWeek: number,
+  weekKm: number,
+  isRecovery: boolean,
+  experienceLevel: ProgramInput["experienceLevel"]
+): 1 | 2 {
+  if (isRecovery || experienceLevel === "ny" || daysPerWeek <= 3 || weekKm < 30) return 1;
   return 2;
 }
 
 function planGuidance(input: ProgramInput, p: TrainingPaces) {
-  const { targetRace: dist, weeks, weeklyKm } = input;
+  const { targetRace: dist, weeks, weeklyKm, goalTimeSec } = input;
   const longDistance = dist === "halvmaraton" || dist === "maraton";
+  const predictedTime = racePaceSecPerKm(input.vdot, dist) * DISTANCES[dist].km;
+  const ambitiousGoal = goalTimeSec != null && goalTimeSec < predictedTime * 0.95;
   const needsCoachReview =
     (dist === "maraton" && (weeklyKm < 30 || weeks < 12)) ||
     (dist === "halvmaraton" && (weeklyKm < 20 || weeks < 8));
@@ -314,6 +331,12 @@ function planGuidance(input: ProgramInput, p: TrainingPaces) {
         ? [{
             title: "Coachvurdering kreves",
             desc: "Tiden eller startvolumet er lavt i forhold til konkurransemålet. Prioriter trygg gjennomføring framfor resultatmål, og vurder å forlenge oppbyggingen før planen tas i bruk.",
+          }]
+        : []),
+      ...(ambitiousGoal
+        ? [{
+            title: "Målet er offensivt",
+            desc: `Måltiden ${fmtDuration(goalTimeSec!)} er mer enn 5 % raskere enn nåværende VDOT-prognose (${fmtDuration(predictedTime)}). Treningsfartene styres derfor av nåværende kapasitet fram til en ny test bekrefter målet.`,
           }]
         : []),
       {
@@ -366,14 +389,135 @@ function weekLayout(daysPerWeek: number): Record<number, "E" | "Q1" | "Q2" | "L"
   }
 }
 
+function raceWeekDays(
+  input: ProgramInput,
+  p: TrainingPaces,
+  weekIndex: number,
+  peakKm: number,
+  distLabel: string,
+  racePace: number,
+  workoutRacePace: number
+): PlanWeek {
+  const { daysPerWeek, weeklyKm, hrMax, startDate, targetRace, vdot } = input;
+  const roles: Record<number, "E" | "Q" | "S"> =
+    daysPerWeek <= 3
+      ? { 1: "Q", 5: "S" }
+      : daysPerWeek === 4
+        ? { 1: "Q", 3: "E", 5: "S" }
+        : daysPerWeek === 5
+          ? { 0: "E", 1: "Q", 3: "E", 5: "S" }
+          : daysPerWeek === 6
+            ? { 0: "E", 1: "Q", 2: "E", 3: "E", 5: "S" }
+            : { 0: "E", 1: "Q", 2: "E", 3: "E", 4: "E", 5: "S" };
+  const easyKm = round05(Math.min(6, Math.max(3, (weeklyKm / daysPerWeek) * 0.65)));
+  const shakeoutKm = Math.min(4, easyKm);
+  const tuneup = qualitySession(
+    4,
+    targetRace,
+    1,
+    0,
+    0,
+    peakKm,
+    p,
+    vdot,
+    workoutRacePace
+  );
+  const raceKm = round05(DISTANCES[targetRace]?.km ?? 10);
+  const warmup =
+    targetRace === "maraton"
+      ? "10–15 min svært rolig bevegelse og 3 korte stigninger"
+      : "15–20 min rolig jogg, dynamisk bevegelse og 4 stigningsløp";
+  const execution =
+    targetRace === "maraton" || targetRace === "halvmaraton"
+      ? "Åpne de første 10 % kontrollert, finn planlagt rytme gjennom midtpartiet og konkurrer først i siste fjerdedel."
+      : "Åpne kontrollert, lås deg til rytmen gjennom midtpartiet og øk gradvis når du har en fjerdedel igjen.";
+  const days: PlanDay[] = [];
+
+  for (let dow = 0; dow < 7; dow++) {
+    const date = addIsoDays(startDate, weekIndex * 7 + dow);
+    if (dow === 6) {
+      days.push({
+        dow,
+        date,
+        type: "konkurranse",
+        title: `KONKURRANSE – ${distLabel}`,
+        desc: `Målfart: ${fmtTime(racePace)} per km. Oppvarming: ${warmup}. ${execution} Juster etter vær, løype og dagsform.`,
+        km: raceKm,
+        pace: `${fmtTime(racePace)}/km`,
+        hr: "Konkurranseinnsats",
+      });
+      continue;
+    }
+    const role = roles[dow];
+    if (role === "Q") {
+      days.push({
+        dow,
+        date,
+        type: tuneup.type,
+        title: tuneup.title,
+        desc: tuneup.desc,
+        km: tuneup.km,
+        pace: fmtRange(p[tuneup.paceKey]),
+        hr: fmtHr(tuneup.paceKey, hrMax),
+      });
+    } else if (role === "S") {
+      days.push({
+        dow,
+        date,
+        type: "rolig",
+        title: "Kort aktivering + stigningsløp",
+        desc: `${shakeoutKm} km svært rolig i E-fart (${fmtRange(p.E)}) + 4 × 15 sek avslappede stigningsløp med full pause. Avslutt mens beina føles bedre enn da du startet.`,
+        km: shakeoutKm,
+        pace: fmtRange(p.E),
+        hr: fmtHr("E", hrMax),
+      });
+    } else if (role === "E") {
+      const strides = dow === 3;
+      days.push({
+        dow,
+        date,
+        type: "rolig",
+        title: `Rolig ${easyKm} km${strides ? " + stigningsløp" : ""}`,
+        desc: `${easyKm} km lett i E-fart (${fmtRange(p.E)}, RPE 2–3/10).${strides ? " Avslutt med 4 × 20 sek kontrollert stigning med full pause." : " Hold igjen – målet er å bevare rytme og frekvens."}`,
+        km: easyKm,
+        pace: fmtRange(p.E),
+        hr: fmtHr("E", hrMax),
+      });
+    } else {
+      days.push({
+        dow,
+        date,
+        type: "hvile",
+        title: "Hvile",
+        desc: "Rolig dag. Formen er bygget; nå handler det om å møte startstreken med overskudd.",
+        km: 0,
+      });
+    }
+  }
+
+  return {
+    nr: weekIndex + 1,
+    phase: 4,
+    phaseName: "Nedtrapping – konkurranseuke",
+    focus: `Behold normal løpsfrekvens, reduser volumet og berør konkurransefarten kort. Ingen økt skal skape stølhet eller vedvarende tretthet før ${distLabel.toLowerCase()}.`,
+    km: round05(days.reduce((sum, day) => sum + day.km, 0)),
+    days,
+  };
+}
+
 export function generatePlan(input: ProgramInput): Plan {
   const { vdot, weeks, daysPerWeek, weeklyKm, hrMax, startDate, targetRace } = input;
+  const experienceLevel = input.experienceLevel ?? "mosjonist";
   const p = trainingPaces(vdot);
   const [n1, n2, n3, n4] = phaseSplit(weeks);
-  const peakKm = peakWeeklyKm(weeks, weeklyKm, targetRace);
+  const peakKm = peakWeeklyKm(weeks, weeklyKm, targetRace, experienceLevel);
   const layout = weekLayout(daysPerWeek);
   const distLabel = DISTANCES[targetRace]?.label ?? targetRace;
-  const racePace = racePaceSecPerKm(vdot, targetRace);
+  const predictedRacePace = racePaceSecPerKm(vdot, targetRace);
+  const racePace = input.goalTimeSec
+    ? input.goalTimeSec / DISTANCES[targetRace].km
+    : predictedRacePace;
+  const workoutRacePace = Math.max(racePace, predictedRacePace * 0.97);
 
   const paceCards: PaceCard[] = [
     { key: "E", label: "E – Rolig", range: fmtRange(p.E), hr: fmtHr("E", hrMax), desc: "Pratefart, RPE 2–3/10. Senk farten ved varme, bakker eller tung kropp." },
@@ -391,6 +535,21 @@ export function generatePlan(input: ProgramInput): Plan {
     const isRaceWeek = w === weeks - 1;
     const weeksFromEnd = weeks - 1 - w;
 
+    if (isRaceWeek) {
+      weeksOut.push(
+        raceWeekDays(
+          input,
+          p,
+          w,
+          peakKm,
+          distLabel,
+          racePace,
+          workoutRacePace
+        )
+      );
+      continue;
+    }
+
     // Ukevolum
     let km: number;
     if (phase === 4 || weeksFromEnd < n4) {
@@ -401,11 +560,6 @@ export function generatePlan(input: ProgramInput): Plan {
       // Jevn, individuell oppbygging fra nåværende belastning mot toppvolumet.
       const buildProgress = Math.min(1, w / Math.max(1, n1 + n2 - 1));
       km = weeklyKm + (peakKm - weeklyKm) * buildProgress;
-    }
-    if (isRaceWeek) {
-      const raceKm = round05(DISTANCES[targetRace]?.km ?? 10);
-      const preRaceKm = Math.max(8, Math.min(20, peakKm * 0.25));
-      km = Math.max(km, raceKm + preRaceKm);
     }
     // Restitusjonsuke hver 4. uke (ikke i nedtrappingen)
     const isRecovery = phase !== 4 && !isRaceWeek && (w + 1) % 4 === 0;
@@ -424,13 +578,14 @@ export function generatePlan(input: ProgramInput): Plan {
       !isRaceWeek &&
       daysPerWeek >= 5 &&
       km >= 45 &&
-      phaseWeek % 2 === 1;
+      phaseWeek % 2 === 1 &&
+      experienceLevel === "erfaren";
     const qualityLimit =
       phase === 1
         ? 0
         : phase === 4 || isRaceWeek || fastFinishLongRun
           ? 1
-          : qualityDayLimit(daysPerWeek, km, isRecovery);
+          : qualityDayLimit(daysPerWeek, km, isRecovery, experienceLevel);
     let qualityDays = 0;
 
     for (let dow = 0; dow < 7; dow++) {
@@ -498,8 +653,12 @@ export function generatePlan(input: ProgramInput): Plan {
       const maxSessionKm = round05(
         availableKm - longKm - eDays.length * minimumEasyKm
       );
-      if (maxSessionKm >= 3) {
-        sessions[day] = compactQualitySession(phase, targetRace, maxSessionKm, p, vdot);
+      const compactKm =
+        phase === 2 && longKm > 0
+          ? Math.min(maxSessionKm, Math.max(3, longKm - 1))
+          : maxSessionKm;
+      if (compactKm >= 3) {
+        sessions[day] = compactQualitySession(phase, targetRace, compactKm, p, vdot);
       } else {
         delete sessions[day];
         eDays.push(day);

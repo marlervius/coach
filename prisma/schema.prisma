@@ -14,6 +14,8 @@ model Program {
   athleteName String
   targetRace  String
   vdot        Float
+  goalTimeSec Int?
+  experienceLevel String @default("mosjonist")
   weeks       Int
   daysPerWeek Int
   weeklyKm    Float

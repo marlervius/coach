@@ -1,4 +1,9 @@
 import type { DayType, Plan } from "./types";
+import {
+  inferRunningType,
+  RUNNING_TYPES,
+  TYPE_TO_PACE_KEY,
+} from "./training-type";
 
 /**
  * AI-en får returnere tekstfeltene (tittel, beskrivelse, ukefokus) pluss
@@ -59,51 +64,11 @@ interface AiImprovement {
   }>;
 }
 
-/** Økttyper AI-en kan veksle mellom. Hvile- og konkurransedager er fredet. */
-const RUNNING_TYPES: ReadonlySet<DayType> = new Set([
-  "rolig",
-  "langtur",
-  "intervall",
-  "terskel",
-  "repetisjoner",
-  "maratonfart",
-]);
-
-/** Hvilken treningsfart (PaceCard-nøkkel) hver økttype hører til. */
-const TYPE_TO_PACE_KEY: Partial<Record<DayType, string>> = {
-  rolig: "E",
-  langtur: "E",
-  maratonfart: "M",
-  terskel: "T",
-  intervall: "I",
-  repetisjoner: "R",
-};
-
 function aiText(value: unknown, field: string, max: number): string {
   if (typeof value !== "string") throw new Error(`${field} mangler`);
   const text = value.trim();
   if (!text || text.length > max) throw new Error(`${field} har ugyldig lengde`);
   return text;
-}
-
-/**
- * AI-en kan skrive riktig øktinnhold, men likevel returnere feil type. Tittelen
- * er den sterkeste kilden; beskrivelsen brukes som reserve. Mer spesifikke
- * intensiteter sjekkes før "rolig", fordi alle kvalitetsøkter omtaler rolig
- * oppvarming og nedjogg.
- */
-function inferRunningType(title: string, desc: string): DayType | undefined {
-  const classify = (text: string): DayType | undefined => {
-    if (/\b(langtur|langkjøring)\b/i.test(text)) return "langtur";
-    if (/\b(terskel|t-fart)\b/i.test(text)) return "terskel";
-    if (/\b(maratonfart|m-fart)\b/i.test(text)) return "maratonfart";
-    if (/\b(repetisjoner?|r-fart)\b/i.test(text)) return "repetisjoner";
-    if (/\b(intervaller?|intervalløkt|i-fart)\b/i.test(text)) return "intervall";
-    if (/\b(rolig|restitusjonsløp|e-fart)\b/i.test(text)) return "rolig";
-    return undefined;
-  };
-
-  return classify(title) ?? classify(desc);
 }
 
 export function mergeAiImprovements(plan: Plan, value: unknown): Plan {

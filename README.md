@@ -7,11 +7,12 @@ Skreddersydde løpeprogrammer for coacher og utøvere. Motoren kombinerer Daniel
 **Coach-siden** (`/coach`):
 
 - Logg inn med coach-passord før du kan lese eller endre programmer
-- Opprett program: velg utøver, distanse (3000 m → maraton), VDOT, antall uker, økter per uke, ukesvolum og startdato
+- Opprett program: velg utøver, distanse (3000 m → maraton), VDOT, måltid, erfaringsnivå, antall uker, økter per uke, ukesvolum og startdato
 - Motoren bygger programmet i fire faser med kontrollert progresjon, restitusjonsuker, variert distansespesifikk kvalitet og konkurransetaper
 - Antall harddager tilpasses treningsfrekvens og ukesvolum, og planen inkluderer praktiske regler for dagsform, smerte, restitusjon og ytre forhold
+- En automatisk fagkontroll varsler om blant annet feil økttype/fart, for tett plasserte hardøkter, for store volumhopp og svak konkurranseuke
 - Rediger hvilken som helst dag manuelt – endringene merkes og overskrives aldri av AI
-- «✨ Forbedre med AI» kan forbedre språk og øktinnhold innenfor låst dato, distanse og sikkerhetsregler
+- «✨ Forbedre med AI» kan forbedre språk og øktinnhold innenfor låst dato, distanse og sikkerhetsregler, men lagrer ikke endringer som introduserer nye faglige feil
 
 **Utøver-siden** (`/p/<kode>`) er en delbar, utskriftsvennlig visning med fart, pulssoner, nedtelling og «I DAG»-markering. Delingskodene er kryptografisk tilfeldige, og sidene er merket for ikke å indekseres av søkemotorer.
 

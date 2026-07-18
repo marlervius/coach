@@ -27,6 +27,8 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           athleteName: program.athleteName,
           targetRace: program.targetRace,
           vdot: program.vdot,
+          goalTimeSec: program.goalTimeSec,
+          experienceLevel: program.experienceLevel,
           weeks: program.weeks,
           daysPerWeek: program.daysPerWeek,
           weeklyKm: program.weeklyKm,

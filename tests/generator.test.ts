@@ -202,3 +202,39 @@ test("planen inkluderer profesjonelle styringsregler for dagsform og restitusjon
   assert.ok(plan.guidance.principles.some((rule) => rule.desc.includes("Tapte økter")));
   assert.ok(plan.guidance.principles.some((rule) => rule.desc.includes("48 timer")));
 });
+
+test("konkurranseuka beholder valgt løpsfrekvens og bruker målfarten", () => {
+  const goalTimeSec = 1 * 3600 + 59 * 60;
+  const plan = generatePlan({
+    ...baseInput,
+    targetRace: "halvmaraton",
+    weeks: 10,
+    daysPerWeek: 4,
+    weeklyKm: 25,
+    goalTimeSec,
+  });
+  const raceWeek = plan.weeks.at(-1)!;
+  const runs = raceWeek.days.filter((day) => day.type !== "hvile");
+  const race = raceWeek.days.find((day) => day.type === "konkurranse")!;
+  assert.equal(runs.length, 4);
+  assert.equal(race.pace, "5:38/km");
+  assert.ok(raceWeek.days.some((day) =>
+    ["intervall", "terskel", "maratonfart"].includes(day.type)
+  ));
+});
+
+test("nye løpere får maksimalt én tydelig kvalitetsdag per uke", () => {
+  const plan = generatePlan({
+    ...baseInput,
+    weeks: 16,
+    daysPerWeek: 5,
+    weeklyKm: 45,
+    experienceLevel: "ny",
+  });
+  for (const week of plan.weeks) {
+    const quality = week.days.filter((day) =>
+      ["intervall", "terskel", "repetisjoner", "maratonfart"].includes(day.type)
+    );
+    assert.ok(quality.length <= 1, `uke ${week.nr} har ${quality.length} hardøkter`);
+  }
+});

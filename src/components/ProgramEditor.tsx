@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Plan, PlanDay, DayType, PaceCard } from "@/lib/types";
 import { DAY_NAMES, TYPE_LABELS } from "@/lib/types";
-import { DISTANCES } from "@/lib/vdot";
+import { DISTANCES, fmtDuration } from "@/lib/vdot";
 import { TrainingGuidance } from "@/components/TrainingGuidance";
+import { TYPE_TO_PACE_KEY } from "@/lib/training-type";
+import { auditPlan } from "@/lib/plan-quality";
+import { PlanQualityPanel } from "@/components/PlanQualityPanel";
 
 const TYPE_COLORS: Record<DayType, string> = {
   hvile: "bg-slate-100 text-slate-600",
@@ -18,21 +21,14 @@ const TYPE_COLORS: Record<DayType, string> = {
   konkurranse: "bg-yellow-200 text-yellow-900",
 };
 
-const TYPE_TO_PACE_KEY: Partial<Record<DayType, string>> = {
-  rolig: "E",
-  langtur: "E",
-  maratonfart: "M",
-  terskel: "T",
-  intervall: "I",
-  repetisjoner: "R",
-};
-
 interface ProgramMeta {
   id: string;
   slug: string;
   athleteName: string;
   targetRace: string;
   vdot: number;
+  goalTimeSec: number | null;
+  experienceLevel: string;
   weeks: number;
   daysPerWeek: number;
   weeklyKm: number;
@@ -52,6 +48,16 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   const [copied, setCopied] = useState(false);
   const [revision, setRevision] = useState(program.revision);
   const [aiInstruction, setAiInstruction] = useState("");
+  const qualityReport = useMemo(
+    () => auditPlan(plan, {
+      daysPerWeek: program.daysPerWeek,
+      weeklyKm: program.weeklyKm,
+      targetRace: program.targetRace,
+      goalTimeSec: program.goalTimeSec,
+      experienceLevel: program.experienceLevel as "ny" | "mosjonist" | "erfaren",
+    }),
+    [plan, program.daysPerWeek, program.experienceLevel, program.goalTimeSec, program.targetRace, program.weeklyKm]
+  );
 
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}/p/${program.slug}` : `/p/${program.slug}`;
 
@@ -167,6 +173,8 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
             <p className="text-slate-500">
               {DISTANCES[program.targetRace]?.label ?? program.targetRace} · {program.weeks} uker ·{" "}
               {program.daysPerWeek} økter/uke · VDOT {program.vdot}
+              {program.goalTimeSec ? ` · mål ${fmtDuration(program.goalTimeSec)}` : ""}
+              {` · ${program.experienceLevel === "erfaren" ? "erfaren" : program.experienceLevel === "ny" ? "ny løper" : "mosjonist"}`}
               {program.hrMax ? ` · makspuls ${program.hrMax}` : ""}
             </p>
             {program.notes && <p className="text-sm text-slate-400 mt-1">{program.notes}</p>}
@@ -222,6 +230,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
         {message && <p className="mt-3 text-sm text-violet-700 bg-violet-50 rounded-lg px-3 py-2">{message}</p>}
       </div>
 
+      <PlanQualityPanel report={qualityReport} />
       <TrainingGuidance guidance={plan.guidance} />
 
       {/* Uker */}

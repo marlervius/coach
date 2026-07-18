@@ -12,6 +12,7 @@ const DAY_TYPES = new Set<DayType>([
   "maratonfart",
   "konkurranse",
 ]);
+const EXPERIENCE_LEVELS = new Set(["ny", "mosjonist", "erfaren"]);
 
 export class ValidationError extends Error {}
 
@@ -50,9 +51,34 @@ function boundedNumber(
   return result;
 }
 
+function optionalGoalTime(value: FormDataEntryValue | null, distanceKm: number): number | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  if (!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(text)) {
+    throw new ValidationError("Måltid må skrives som mm:ss eller t:mm:ss");
+  }
+  const parts = text.split(":").map(Number);
+  const seconds = parts.length === 3
+    ? parts[0] * 3600 + parts[1] * 60 + parts[2]
+    : parts[0] * 60 + parts[1];
+  if (parts.some((part) => !Number.isInteger(part)) || parts.at(-1)! >= 60 || (parts.length === 3 && parts[1] >= 60)) {
+    throw new ValidationError("Måltid har ugyldige minutter eller sekunder");
+  }
+  const pace = seconds / distanceKm;
+  if (pace < 150 || pace > 900) {
+    throw new ValidationError("Måltiden gir en urealistisk konkurransefart");
+  }
+  return seconds;
+}
+
 export function parseProgramInput(formData: FormData): ProgramInput {
   const targetRace = String(formData.get("targetRace") ?? "");
   if (!(targetRace in DISTANCES)) throw new ValidationError("Velg en gyldig konkurransedistanse");
+  const distanceKm = DISTANCES[targetRace].km;
+  const experienceLevel = String(formData.get("experienceLevel") ?? "mosjonist");
+  if (!EXPERIENCE_LEVELS.has(experienceLevel)) {
+    throw new ValidationError("Velg et gyldig erfaringsnivå");
+  }
 
   const startDate = String(formData.get("startDate") ?? "");
   if (!isValidIsoDate(startDate)) throw new ValidationError("Velg en gyldig startdato");
@@ -69,6 +95,8 @@ export function parseProgramInput(formData: FormData): ProgramInput {
     athleteName: boundedString(formData.get("athleteName"), "Utøverens navn", 1, 100),
     targetRace,
     vdot: boundedNumber(formData.get("vdot"), "VDOT", 20, 85),
+    goalTimeSec: optionalGoalTime(formData.get("goalTime"), distanceKm),
+    experienceLevel: experienceLevel as ProgramInput["experienceLevel"],
     weeks: boundedNumber(formData.get("weeks"), "Antall uker", 2, 30, true),
     daysPerWeek,
     weeklyKm,

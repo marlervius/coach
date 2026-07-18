@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
 import { DISTANCES } from "@/lib/vdot";
+import { fmtDuration } from "@/lib/vdot";
 import type { Plan } from "@/lib/types";
 import { isCoachAuthenticated } from "@/lib/auth";
 import { readJsonBody, RequestBodyError } from "@/lib/request";
 import { parseAiInstruction, parseRevision, ValidationError } from "@/lib/validation";
 import { IMPROVEMENTS_SCHEMA, mergeAiImprovements } from "@/lib/ai-merge";
+import { auditPlan } from "@/lib/plan-quality";
 
 export const maxDuration = 300;
 
@@ -98,6 +100,9 @@ Du får et generert treningsprogram i JSON-format, og eventuelt en beskjed fra c
 - Uten beskjed fra coachen: behold treningsoppskriften og forbedre kun formuleringene (og rett økttypen hvis den ikke stemmer med innholdet).
 - Alle farter du oppgir i teksten skal være konsistente med utøverens treningsfarter (oppgitt i input).
 - Hviledager og konkurransedager kan aldri gjøres om til noe annet, og ingen dag kan gjøres om til hvile eller konkurranse.
+- Behold antall kvalitetsdager i hver uke. Hvis coachen ber om intervaller, bytt en eksisterende kvalitetsøkt – ikke gjør en ekstra rolig dag hard.
+- Langtur skal forbli langtur. En rolig tur kan bare bli kvalitetsøkt hvis coachen uttrykkelig ber om akkurat den dagen.
+- Det skal være minst én hel rolig dag eller hviledag mellom tydelige hardøkter.
 - Datoene i svaret ditt skal være identiske med input, og rekkefølgen uendret.
 - Behold dager merket som manuelt endret av coachen ("edited": beskrevet i input) nøyaktig som de er.
 - Alt skal være på norsk. Skriv direkte til utøveren ("du").
@@ -115,6 +120,7 @@ Returner ukenummer, ukefokus og dato/type/tittel/beskrivelse for hver dag i oppg
   const userMsg = `Utøver: ${program.athleteName}
 Mål: ${DISTANCES[program.targetRace]?.label ?? program.targetRace}
 VDOT: ${program.vdot}
+Erfaringsnivå: ${program.experienceLevel}${program.goalTimeSec ? `\nMåltid: ${fmtDuration(program.goalTimeSec)}` : ""}
 Økter per uke: ${program.daysPerWeek}
 Nåværende ukesvolum: ${program.weeklyKm} km${program.hrMax ? `\nMakspuls: ${program.hrMax}` : ""}${program.notes ? `\nCoachens notater: ${program.notes}` : ""}${editedNote}${
     instruction ? `\n\nCoachens beskjed – dette skal du gjøre:\n${instruction}` : ""
@@ -144,6 +150,26 @@ ${JSON.stringify({ weeks: plan.weeks })}`;
     const text = message.content.find((b) => b.type === "text")?.text;
     if (!text) throw new Error("Tomt svar fra AI");
     const updated = mergeAiImprovements(plan, JSON.parse(text));
+    const qualityContext = {
+      daysPerWeek: program.daysPerWeek,
+      weeklyKm: program.weeklyKm,
+      targetRace: program.targetRace,
+      goalTimeSec: program.goalTimeSec,
+      experienceLevel: program.experienceLevel as "ny" | "mosjonist" | "erfaren",
+    };
+    const beforeErrors = new Set(
+      auditPlan(plan, qualityContext).issues
+        .filter((issue) => issue.severity === "error")
+        .map((issue) => `${issue.code}:${issue.date ?? issue.weekNr ?? "plan"}`)
+    );
+    const newErrors = auditPlan(updated, qualityContext).issues.filter(
+      (issue) =>
+        issue.severity === "error" &&
+        !beforeErrors.has(`${issue.code}:${issue.date ?? issue.weekNr ?? "plan"}`)
+    );
+    if (newErrors.length > 0) {
+      throw new Error("AI_UNSAFE_PLAN");
+    }
     const saved = await prisma.program.updateMany({
       where: { id, revision, aiLockedUntil: lockUntil },
       data: {
@@ -186,6 +212,12 @@ ${JSON.stringify({ weeks: plan.weeks })}`;
     }
     if (err instanceof Error && err.message === "AI_INCOMPLETE") {
       return NextResponse.json({ error: "AI-en kunne ikke fullføre forbedringen. Prøv igjen." }, { status: 502 });
+    }
+    if (err instanceof Error && err.message === "AI_UNSAFE_PLAN") {
+      return NextResponse.json(
+        { error: "AI-forslaget brøt programmets belastnings- eller intensitetsregler og ble ikke lagret." },
+        { status: 422 }
+      );
     }
     console.error("AI-forbedring feilet:", err);
     return NextResponse.json({ error: "AI-forbedring feilet. Prøv igjen." }, { status: 502 });

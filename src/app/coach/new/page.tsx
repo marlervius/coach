@@ -62,6 +62,30 @@ export default async function NewProgramPage({
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={label} htmlFor="goalTime">Måltid (valgfritt)</label>
+            <input
+              className={field}
+              id="goalTime"
+              name="goalTime"
+              inputMode="numeric"
+              placeholder="F.eks. 1:59:00"
+              pattern="\d{1,2}:\d{2}(:\d{2})?"
+            />
+            <p className="text-xs text-slate-400 mt-1">mm:ss eller t:mm:ss</p>
+          </div>
+          <div>
+            <label className={label} htmlFor="experienceLevel">Løpeerfaring</label>
+            <select className={field} id="experienceLevel" name="experienceLevel" defaultValue="mosjonist">
+              <option value="ny">Ny – under 1 år regelmessig</option>
+              <option value="mosjonist">Mosjonist – 1–3 år</option>
+              <option value="erfaren">Erfaren – over 3 år</option>
+            </select>
+            <p className="text-xs text-slate-400 mt-1">Styrer progresjon og antall harddager</p>
+          </div>
+        </div>
+
         <div className="grid grid-cols-3 gap-4">
           <div>
             <label className={label} htmlFor="weeks">Antall uker</label>

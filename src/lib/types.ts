@@ -61,6 +61,9 @@ export interface ProgramInput {
   athleteName: string;
   targetRace: string;
   vdot: number;
+  /** Valgfri måltid i sekunder. Treningsfarter styres fortsatt av nåværende VDOT. */
+  goalTimeSec?: number | null;
+  experienceLevel?: "ny" | "mosjonist" | "erfaren";
   weeks: number;
   daysPerWeek: number;
   weeklyKm: number;
