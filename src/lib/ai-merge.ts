@@ -187,6 +187,7 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
 
       const title = aiText(improvedDay.title, "Økttittel", 160);
       const desc = aiText(improvedDay.desc, "Øktbeskrivelse", 4_000);
+      let km = aiKm(improvedDay.km, day.km);
 
       // Typebytte tillates kun mellom løpe-økttyper; hvile/konkurranse er fredet.
       let type = day.type;
@@ -196,20 +197,31 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
 
         // Serveren korrigerer klassifiseringen hvis innholdet motsier AI-feltet.
         const inferred = inferRunningType(title, desc);
-        if (inferred) type = inferred;
+        if (inferred && RUNNING_TYPES.has(inferred)) type = inferred;
+        if (
+          inferred === "hvile" &&
+          (proposed === "hvile" || km === 0)
+        ) {
+          type = "hvile";
+        }
       }
 
-      let km = aiKm(improvedDay.km, day.km);
       let pace = aiOptionalText(improvedDay.pace, "Fart", 160);
       let hr = aiOptionalText(improvedDay.hr, "Pulssone", 200);
 
       // Hvile og konkurransedistanse er strukturelle sikkerhetsgrenser.
       if (day.type === "hvile") {
+        type = "hvile";
         km = 0;
         pace = undefined;
         hr = undefined;
       } else if (day.type === "konkurranse") {
+        type = "konkurranse";
         km = day.km;
+      } else if (type === "hvile") {
+        km = 0;
+        pace = undefined;
+        hr = undefined;
       } else {
         // Ordinære løpeøkter bruker planens VDOT-beregnede standardsone.
         // Dermed kan ikke fritekst og visningsfelter havne i ulike intensiteter.

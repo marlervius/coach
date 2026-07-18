@@ -254,6 +254,25 @@ test("hviledager holdes på null kilometer uten fart og puls", () => {
   assert.equal(day.hr, undefined);
 });
 
+test("AI kan rette en feilmerket nullkilometers løpedag til hvile", () => {
+  const merged = mergeAiImprovements(
+    makePlan(),
+    aiWeeks({
+      type: "hvile",
+      title: "Hvile",
+      desc: "Ingen løping i dag.",
+      km: 0,
+      pace: "",
+      hr: "",
+    })
+  );
+  const day = merged.weeks[0].days[1];
+  assert.equal(day.type, "hvile");
+  assert.equal(day.km, 0);
+  assert.equal(day.pace, undefined);
+  assert.equal(day.hr, undefined);
+});
+
 test("endret dato avvises", () => {
   const ai = aiWeeks();
   ai.weeks[0].days[1].date = "2026-07-22";

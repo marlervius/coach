@@ -25,20 +25,36 @@ export const TYPE_TO_PACE_KEY: Partial<Record<DayType, string>> = {
   repetisjoner: "R",
 };
 
+export function isRestDayContent(title: string, desc: string): boolean {
+  const titleText = title.trim();
+  const combined = `${titleText} ${desc}`;
+  return (
+    /^(hvile|fridag|treningsfri)(?:\b|$)/i.test(titleText) ||
+    /\b(full hviledag|ingen løping(?: i dag)?|helt treningsfri)\b/i.test(combined)
+  );
+}
+
 /**
  * Klassifiserer øktinnhold konservativt. Tittelen bør sendes inn først, siden
  * beskrivelser av kvalitetsøkter også omtaler rolig oppvarming og nedjogg.
  */
 export function inferRunningType(title: string, desc: string): DayType | undefined {
   const classify = (text: string, allowEasy: boolean): DayType | undefined => {
-    if (/\b(langtur|langkjøring)\b/i.test(text)) return "langtur";
+    if (/\b(t\s*\/\s*m-fart|terskel\s*\/\s*maratonfart)\b/i.test(text)) return "terskel";
     if (/\b(terskel|t-fart)\b/i.test(text)) return "terskel";
     if (/\b(maratonfart|m-fart)\b/i.test(text)) return "maratonfart";
     if (/\b(repetisjoner?|r-fart)\b/i.test(text)) return "repetisjoner";
     if (/\b(intervaller?|intervalløkt|i-fart)\b/i.test(text)) return "intervall";
-    if (allowEasy && /\b(rolig|restitusjonsløp|e-fart)\b/i.test(text)) return "rolig";
+    if (
+      allowEasy &&
+      /\b(rolig(?:\s+langkjøring)?|restitusjonsløp|e-fart)\b/i.test(text)
+    ) {
+      return "rolig";
+    }
+    if (/\b(langtur|langkjøring)\b/i.test(text)) return "langtur";
     return undefined;
   };
 
+  if (isRestDayContent(title, desc)) return "hvile";
   return classify(title, true) ?? classify(desc, false);
 }
