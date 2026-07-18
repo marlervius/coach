@@ -31,10 +31,10 @@ DATABASE_URL="postgresql://..."
 DATABASE_URL_UNPOOLED="postgresql://..."
 COACH_PASSWORD="et-unikt-passord-med-minst-12-tegn"
 AUTH_SECRET="en-tilfeldig-hemmelighet-med-minst-32-tegn"
-ANTHROPIC_API_KEY="sk-ant-..."
+GEMINI_KEY="AIza..."
 ```
 
-`ANTHROPIC_API_KEY` er valgfri. Appen fungerer uten den; den deterministiske treningsmotoren lager hele programmet selv.
+`GEMINI_KEY` er valgfri. Appen fungerer uten den; den deterministiske treningsmotoren lager hele programmet selv. AI-forbedring bruker den stabile modellen `gemini-3.5-flash` med lavt tenkenivå for å holde kostnad og ventetid nede.
 
 Kvalitetssjekker:
 
@@ -50,7 +50,7 @@ npm run build
 1. Importer GitHub-repoet som et nytt prosjekt.
 2. Opprett en Neon-database og koble den til prosjektet.
 3. Legg til `COACH_PASSWORD` og en tilfeldig `AUTH_SECRET` under *Environment Variables*.
-4. Legg eventuelt til `ANTHROPIC_API_KEY`.
+4. Legg eventuelt til `GEMINI_KEY`.
 5. Kjør `npm run db:migrate` mot databasen før første deploy.
 6. Deploy. Byggesteget genererer Prisma-klienten, men endrer ikke databasen.
 
@@ -69,4 +69,4 @@ Kjør bare `migrate resolve` når den eksisterende databasen allerede har `Progr
 - **Prisma** + PostgreSQL (Neon), med versjonerte migrasjoner
 - **Treningsmotor** i [src/lib/vdot.ts](src/lib/vdot.ts) og [src/lib/generator.ts](src/lib/generator.ts)
 - **Sikkerhet**: signert `HttpOnly`-sesjon, autorisasjon i alle mutasjoner, servervalidering, revisjonskontroll og begrensning av parallelle AI-kall
-- **AI** i `src/app/api/program/[id]/ai/route.ts`: bare validerte felt flettes tilbake, sikkerhetskritisk struktur låses, og manuelt redigerte dager bevares
+- **AI** med Gemini 3.5 Flash i `src/app/api/program/[id]/ai/route.ts`: bare validerte felt flettes tilbake, sikkerhetskritisk struktur låses, og manuelt redigerte dager bevares
