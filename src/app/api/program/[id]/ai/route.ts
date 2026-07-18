@@ -98,6 +98,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     console.error("Lagret program har ugyldig JSON:", error);
     return NextResponse.json({ error: "Programmet har ugyldige lagrede data." }, { status: 500 });
   }
+  const qualityContext = {
+    daysPerWeek: program.daysPerWeek,
+    weeklyKm: program.weeklyKm,
+    targetRace: program.targetRace,
+    goalTimeSec: program.goalTimeSec,
+    experienceLevel: program.experienceLevel as "ny" | "mosjonist" | "erfaren",
+  };
+  const existingQualityIssues = auditPlan(plan, qualityContext).issues;
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_KEY });
 
   const system = `Du er en av verdens fremste løpecoacher, med dyp kunnskap om Jack Daniels' treningsfilosofi (VDOT, E/M/T/I/R-intensiteter, periodisering i fire faser), samt prinsippene til Renato Canova, Arthur Lydiard og Peter Coe.
@@ -110,10 +118,13 @@ Du får et generert treningsprogram i JSON-format, og eventuelt en beskjed fra c
 - Uten beskjed fra coachen: behold hovedoppskriften, men rett alle faglige og interne avvik du finner.
 - Distansefeltet "km", distanser nevnt i tittel/beskrivelse og samlet ukesvolum må beskrive den samme planen. Endrer du én av dem, oppdaterer du de andre relevante feltene.
 - Alle farter du oppgir i teksten skal være konsistente med utøverens treningsfarter (oppgitt i input).
-- Hviledager og konkurransedager kan aldri gjøres om til noe annet, og ingen dag kan gjøres om til hvile eller konkurranse.
-- Behold antall kvalitetsdager i hver uke. Hvis coachen ber om intervaller, bytt en eksisterende kvalitetsøkt – ikke gjør en ekstra rolig dag hard.
+- Eksisterende hviledager og konkurransedager kan aldri gjøres om til noe annet. En feilmerket løpedag kan bare gjøres om til hvile når tittelen og beskrivelsen tydelig beskriver hvile; sett da km til 0 og fart/puls til tom tekst. Ingen dag kan gjøres om til konkurranse.
+- Ikke øk antall kvalitetsdager i en uke. Hvis fagkontrollen oppgir for mange harddager, reduser antallet. Hvis coachen ber om intervaller, bytt en eksisterende kvalitetsøkt – ikke gjør en ekstra rolig dag hard.
 - Langtur skal forbli langtur. En rolig tur kan bare bli kvalitetsøkt hvis coachen uttrykkelig ber om akkurat den dagen.
 - Det skal være minst én hel rolig dag eller hviledag mellom tydelige hardøkter.
+- En restitusjonsuke skal ha minst 10 % lavere totalvolum enn uka før og maksimalt én tydelig kvalitetsdag.
+- En vanlig treningsuke skal ha nøyaktig én langtur. Korte rolige turer, også «rolig langkjøring», skal ha type "rolig".
+- En økt med tidsbaserte drag må ha en realistisk totaldistanse for oppvarming, arbeidsdrag, pauser og nedjogg.
 - Datoene i svaret ditt skal være identiske med input, og rekkefølgen uendret.
 - Dager merket "edited" er manuelt endret av coachen. De skal også kontrolleres og kan rettes hvis innhold, type, distanse, fart eller puls ikke lenger stemmer sammen.
 - Alt skal være på norsk. Skriv direkte til utøveren ("du").
@@ -151,7 +162,10 @@ Utøverens treningsfarter (JSON):
 ${JSON.stringify(plan.paces)}
 
 Programmet (JSON):
-${JSON.stringify({ weeks: plan.weeks })}`;
+${JSON.stringify({ weeks: plan.weeks })}
+
+Fagkontroll før forbedring (alle ERROR-punkter må være borte i svaret):
+${JSON.stringify(existingQualityIssues.filter((issue) => issue.severity === "error"))}`;
 
   try {
     const response = await client.models.generateContent({
@@ -180,24 +194,11 @@ ${JSON.stringify({ weeks: plan.weeks })}`;
     const parsed = JSON.parse(text);
     const updated = mergeAiImprovements(plan, parsed);
     const report = buildAiChangeReport(plan, updated, parsed);
-    const qualityContext = {
-      daysPerWeek: program.daysPerWeek,
-      weeklyKm: program.weeklyKm,
-      targetRace: program.targetRace,
-      goalTimeSec: program.goalTimeSec,
-      experienceLevel: program.experienceLevel as "ny" | "mosjonist" | "erfaren",
-    };
-    const beforeErrors = new Set(
-      auditPlan(plan, qualityContext).issues
-        .filter((issue) => issue.severity === "error")
-        .map((issue) => `${issue.code}:${issue.date ?? issue.weekNr ?? "plan"}`)
+    const remainingErrors = auditPlan(updated, qualityContext).issues.filter(
+      (issue) => issue.severity === "error"
     );
-    const newErrors = auditPlan(updated, qualityContext).issues.filter(
-      (issue) =>
-        issue.severity === "error" &&
-        !beforeErrors.has(`${issue.code}:${issue.date ?? issue.weekNr ?? "plan"}`)
-    );
-    if (newErrors.length > 0) {
+    if (remainingErrors.length > 0) {
+      console.error("AI-planen besto ikke fagkontrollen:", remainingErrors);
       throw new Error("AI_UNSAFE_PLAN");
     }
     const saved = await prisma.program.updateMany({
@@ -270,7 +271,7 @@ ${JSON.stringify({ weeks: plan.weeks })}`;
     }
     if (err instanceof Error && err.message === "AI_UNSAFE_PLAN") {
       return NextResponse.json(
-        { error: "AI-forslaget brøt programmets belastnings- eller intensitetsregler og ble ikke lagret." },
+        { error: "AI-forslaget besto ikke hele fagkontrollen og ble ikke lagret. Prøv igjen med en tydeligere beskjed." },
         { status: 422 }
       );
     }

@@ -1,6 +1,7 @@
 import type { Plan, ProgramInput } from "./types";
 import {
   inferRunningType,
+  isRestDayContent,
   QUALITY_TYPES,
   RUNNING_TYPES,
   TYPE_TO_PACE_KEY,
@@ -32,10 +33,59 @@ export interface PlanQualityContext {
   experienceLevel?: ProgramInput["experienceLevel"];
 }
 
+function round05(value: number): number {
+  return Math.round(value * 2) / 2;
+}
+
 function thresholdWorkKm(title: string): number | null {
   const match = title.match(/(\d+)\s*[×x]\s*(\d+(?:[.,]\d+)?)\s*km/i);
   if (!match) return null;
   return Number(match[1]) * Number(match[2].replace(",", "."));
+}
+
+function isRecoveryWeek(phaseName: string): boolean {
+  return phaseName.toLocaleLowerCase("nb-NO").includes("restitusjonsuke");
+}
+
+function hasQualityContent(day: Plan["weeks"][number]["days"][number]): boolean {
+  if (QUALITY_TYPES.has(day.type)) return true;
+  if (day.type !== "langtur") return false;
+  return /\b(harddag|progressiv|terskel|t-fart|maratonfart|m-fart|intervall|i-fart|konkurransefart)\b/i
+    .test(`${day.title} ${day.desc}`);
+}
+
+function timeBasedWorkMinutes(title: string): number | null {
+  const match = title.match(/(\d+)\s*[×x]\s*(\d+(?:[.,]\d+)?)\s*min/i);
+  if (!match) return null;
+  return Number(match[1]) * Number(match[2].replace(",", "."));
+}
+
+function statedTotalKm(
+  day: Plan["weeks"][number]["days"][number]
+): number | null {
+  const totalMatch = `${day.title} ${day.desc}`.match(
+    /(\d+(?:[.,]\d+)?)\s*km\s+totalt\b/i
+  );
+  if (totalMatch) return Number(totalMatch[1].replace(",", "."));
+
+  if (day.type !== "rolig" && day.type !== "langtur") return null;
+  const titleMatch =
+    day.title.match(
+      /^(?:rolig(?:\s+langkjøring)?|langtur|restitusjonsløp)\D{0,20}?(\d+(?:[.,]\d+)?)\s*km\b/i
+    ) ??
+    day.title.match(
+      /^(\d+(?:[.,]\d+)?)\s*km\s+(?:rolig|langtur|restitusjonsløp)\b/i
+    );
+  if (titleMatch) return Number(titleMatch[1].replace(",", "."));
+
+  const descMatch = day.desc.match(/^(\d+(?:[.,]\d+)?)\s*km\s+(?:i|rolig|lett)\b/i);
+  return descMatch ? Number(descMatch[1].replace(",", ".")) : null;
+}
+
+function declaredType(text: string): string | undefined {
+  return text.match(
+    /\b(?:endret|endre|byttet|bytt)\s+(?:økt)?type(?:n)?\s+(?:er\s+)?til\s+["'«]?(rolig|langtur|intervall|terskel|repetisjoner|maratonfart|hvile|konkurranse)/i
+  )?.[1]?.toLocaleLowerCase("nb-NO");
 }
 
 export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityReport {
@@ -45,11 +95,12 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
   const experienceLevel = context.experienceLevel ?? "mosjonist";
 
   for (const week of plan.weeks) {
-    const qualityDays = week.days.filter((day) =>
-      QUALITY_TYPES.has(day.type) || (day.type === "langtur" && day.desc.includes("harddag"))
-    );
+    const recoveryWeek = isRecoveryWeek(week.phaseName);
+    const qualityDays = week.days.filter(hasQualityContent);
     const qualityLimit =
-      experienceLevel === "ny" || context.daysPerWeek <= 3 || week.km < 30 ? 1 : 2;
+      recoveryWeek || experienceLevel === "ny" || context.daysPerWeek <= 3 || week.km < 30
+        ? 1
+        : 2;
     const isRaceWeek = week.days.some((day) => day.type === "konkurranse");
 
     if (!isRaceWeek && qualityDays.length > qualityLimit) {
@@ -76,7 +127,18 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
       }
     }
 
-    const longRun = week.days.find((day) => day.type === "langtur");
+    const longRuns = week.days.filter((day) => day.type === "langtur" && day.km > 0);
+    if (!isRaceWeek && longRuns.length !== 1) {
+      issues.push({
+        code: "long-run-count",
+        severity: "error",
+        weekNr: week.nr,
+        title: `Feil antall langturer i uke ${week.nr}`,
+        desc: `Uka har ${longRuns.length} økter merket langtur. En normal treningsuke skal ha nøyaktig én.`,
+      });
+    }
+
+    const longRun = longRuns[0];
     if (longRun && week.km > 0 && longRun.km / week.km > 0.42) {
       issues.push({
         code: "long-run-share",
@@ -89,7 +151,35 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
     }
 
     for (const day of week.days) {
+      if (day.type === "hvile") {
+        if (day.km !== 0 || day.pace || day.hr) {
+          issues.push({
+            code: "rest-fields-mismatch",
+            severity: "error",
+            weekNr: week.nr,
+            date: day.date,
+            title: `Hviledagen har treningsdata ${day.date}`,
+            desc: "En hviledag skal ha 0 km og ingen fart- eller pulssone.",
+          });
+        }
+        continue;
+      }
       if (!RUNNING_TYPES.has(day.type)) continue;
+
+      if (day.km <= 0 || isRestDayContent(day.title, day.desc)) {
+        issues.push({
+          code: "running-rest-mismatch",
+          severity: "error",
+          weekNr: week.nr,
+          date: day.date,
+          title: `Løpedagen beskriver hvile ${day.date}`,
+          desc:
+            day.km <= 0
+              ? `Økten er merket «${day.type}», men har ${day.km} km. Velg hvile eller legg inn faktisk løpsdistanse.`
+              : `Økten er merket «${day.type}», men tittelen eller beskrivelsen sier at dette er en hviledag.`,
+        });
+      }
+
       const inferred = inferRunningType(day.title, day.desc);
       if (inferred && inferred !== day.type) {
         issues.push({
@@ -99,6 +189,30 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
           date: day.date,
           title: `Økttype og innhold er ulike ${day.date}`,
           desc: `Teksten beskriver «${inferred}», men fargekoden er «${day.type}».`,
+        });
+      }
+
+      const statedType = declaredType(`${day.title} ${day.desc}`);
+      if (statedType && statedType !== day.type) {
+        issues.push({
+          code: "declared-type-mismatch",
+          severity: "error",
+          weekNr: week.nr,
+          date: day.date,
+          title: `Teksten oppgir en annen økttype ${day.date}`,
+          desc: `Teksten sier at typen er «${statedType}», mens fargekoden er «${day.type}».`,
+        });
+      }
+
+      const textKm = statedTotalKm(day);
+      if (textKm != null && Math.abs(textKm - day.km) > 0.25) {
+        issues.push({
+          code: "distance-text-mismatch",
+          severity: "error",
+          weekNr: week.nr,
+          date: day.date,
+          title: `Distansefelt og tekst er ulike ${day.date}`,
+          desc: `Distansefeltet viser ${day.km} km, mens overskrift eller beskrivelse oppgir ${textKm} km totalt.`,
         });
       }
 
@@ -129,12 +243,40 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
           });
         }
       }
+
+      const workMinutes = timeBasedWorkMinutes(day.title);
+      if (workMinutes != null && QUALITY_TYPES.has(day.type)) {
+        const generousSessionKm = round05(5 + workMinutes / 3.5);
+        if (day.km > generousSessionKm + 0.5) {
+          issues.push({
+            code: "session-distance",
+            severity: "error",
+            weekNr: week.nr,
+            date: day.date,
+            title: `Distanse og øktoppskrift stemmer ikke ${day.date}`,
+            desc: `${day.title} er satt til ${day.km} km. Med oppvarming, pauser og nedjogg bør økta normalt ikke overstige omtrent ${generousSessionKm} km.`,
+          });
+        }
+      }
     }
   }
 
   for (let index = 1; index < plan.weeks.length; index++) {
     const week = plan.weeks[index];
-    if (week.phase === 4 || week.phaseName.includes("restitusjonsuke")) continue;
+    if (isRecoveryWeek(week.phaseName)) {
+      const previous = plan.weeks[index - 1];
+      if (previous.km > 0 && week.km > previous.km * 0.9) {
+        issues.push({
+          code: "recovery-week-volume",
+          severity: "error",
+          weekNr: week.nr,
+          title: `Restitusjonsuka reduserer ikke volumet`,
+          desc: `Uke ${week.nr} er merket restitusjonsuke, men har ${week.km} km mot ${previous.km} km uka før. Reduser minst 10 %.`,
+        });
+      }
+      continue;
+    }
+    if (week.phase === 4) continue;
     const history = plan.weeks
       .slice(Math.max(0, index - 3), index)
       .filter((candidate) => !candidate.phaseName.includes("restitusjonsuke"));
@@ -155,13 +297,13 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
   );
   if (raceWeek) {
     const preRaceRuns = raceWeek.days.filter(
-      (day) => day.type !== "hvile" && day.type !== "konkurranse"
+      (day) => RUNNING_TYPES.has(day.type) && day.km > 0 && !isRestDayContent(day.title, day.desc)
     );
     const expectedRuns = Math.max(2, context.daysPerWeek - 1);
     if (preRaceRuns.length < expectedRuns) {
       issues.push({
         code: "race-week-frequency",
-        severity: "warning",
+        severity: "error",
         weekNr: raceWeek.nr,
         title: "For lite løping i konkurranseuka",
         desc: `${preRaceRuns.length} økter før løpet kan gjøre beina flate. Behold omtrent ${expectedRuns} korte økter og reduser heller varigheten.`,
