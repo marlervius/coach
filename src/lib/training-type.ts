@@ -40,6 +40,9 @@ export function isRestDayContent(title: string, desc: string): boolean {
  */
 export function inferRunningType(title: string, desc: string): DayType | undefined {
   const classify = (text: string, allowEasy: boolean): DayType | undefined => {
+    // «Langtur» er alltid hovedtypen, også når økta avsluttes progressivt
+    // eller inneholder blokker i M-/T-fart. Belastningen telles separat.
+    if (/\blangtur\b/i.test(text)) return "langtur";
     if (/\b(t\s*\/\s*m-fart|terskel\s*\/\s*maratonfart)\b/i.test(text)) return "terskel";
     if (/\b(terskel|t-fart)\b/i.test(text)) return "terskel";
     if (/\b(maratonfart|m-fart)\b/i.test(text)) return "maratonfart";
@@ -51,7 +54,7 @@ export function inferRunningType(title: string, desc: string): DayType | undefin
     ) {
       return "rolig";
     }
-    if (/\b(langtur|langkjøring)\b/i.test(text)) return "langtur";
+    if (/\blangkjøring\b/i.test(text)) return "langtur";
     return undefined;
   };
 

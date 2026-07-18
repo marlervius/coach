@@ -138,6 +138,14 @@ test("typeinferensen skiller rolig langkjøring og blandet T/M-fart riktig", () 
     inferRunningType("Fartsveksling: 25 min T/M-fart", "Veksle mellom T- og M-fart."),
     "terskel"
   );
+  assert.equal(
+    inferRunningType("Langtur med M-fart: 13 km totalt", "Avslutt 3 km i M-fart."),
+    "langtur"
+  );
+  assert.equal(
+    inferRunningType("Rolig langtur 10 km", "Hold E-fart hele veien."),
+    "langtur"
+  );
   assert.equal(inferRunningType("Hvile", "Ingen løping i dag."), "hvile");
 });
 
