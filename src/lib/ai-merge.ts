@@ -86,6 +86,26 @@ function aiText(value: unknown, field: string, max: number): string {
   return text;
 }
 
+/**
+ * AI-en kan skrive riktig øktinnhold, men likevel returnere feil type. Tittelen
+ * er den sterkeste kilden; beskrivelsen brukes som reserve. Mer spesifikke
+ * intensiteter sjekkes før "rolig", fordi alle kvalitetsøkter omtaler rolig
+ * oppvarming og nedjogg.
+ */
+function inferRunningType(title: string, desc: string): DayType | undefined {
+  const classify = (text: string): DayType | undefined => {
+    if (/\b(langtur|langkjøring)\b/i.test(text)) return "langtur";
+    if (/\b(terskel|t-fart)\b/i.test(text)) return "terskel";
+    if (/\b(maratonfart|m-fart)\b/i.test(text)) return "maratonfart";
+    if (/\b(repetisjoner?|r-fart)\b/i.test(text)) return "repetisjoner";
+    if (/\b(intervaller?|intervalløkt|i-fart)\b/i.test(text)) return "intervall";
+    if (/\b(rolig|restitusjonsløp|e-fart)\b/i.test(text)) return "rolig";
+    return undefined;
+  };
+
+  return classify(title) ?? classify(desc);
+}
+
 export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("AI-svaret hadde feil struktur");
@@ -112,16 +132,18 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
       }
       if (day.edited) return day;
 
+      const title = aiText(improvedDay.title, "Økttittel", 160);
+      const desc = aiText(improvedDay.desc, "Øktbeskrivelse", 4_000);
+
       // Typebytte tillates kun mellom løpe-økttyper; hvile/konkurranse er fredet.
       let type = day.type;
       const proposed = improvedDay.type as DayType | undefined;
-      if (
-        proposed &&
-        proposed !== day.type &&
-        RUNNING_TYPES.has(proposed) &&
-        RUNNING_TYPES.has(day.type)
-      ) {
-        type = proposed;
+      if (RUNNING_TYPES.has(day.type)) {
+        if (proposed && RUNNING_TYPES.has(proposed)) type = proposed;
+
+        // Serveren korrigerer klassifiseringen hvis innholdet motsier AI-feltet.
+        const inferred = inferRunningType(title, desc);
+        if (inferred) type = inferred;
       }
 
       // Ved typebytte følger fart og pulssone den nye typen.
@@ -140,8 +162,8 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
         type,
         pace,
         hr,
-        title: aiText(improvedDay.title, "Økttittel", 160),
-        desc: aiText(improvedDay.desc, "Øktbeskrivelse", 4_000),
+        title,
+        desc,
       };
     });
     return {

@@ -13,6 +13,7 @@ function makePlan(): Plan {
       { key: "E", label: "E – Rolig", range: "6:30–7:28/km", hr: "65–79 % av makspuls", desc: "" },
       { key: "T", label: "T – Terskel", range: "5:37–5:46/km", hr: "88–92 % av makspuls", desc: "" },
       { key: "I", label: "I – Intervall", range: "5:05–5:18/km", hr: "92–100 % av makspuls", desc: "" },
+      { key: "R", label: "R – Repetisjoner", range: "4:44–4:55/km", hr: "Styres av fart, ikke puls", desc: "" },
     ],
     weeks: [
       {
@@ -72,6 +73,36 @@ test("typebytte til terskel oppdaterer badge, fart og pulssone", () => {
   assert.equal(day.title, "Terskel 2 × 6 min");
   assert.equal(day.km, 6.5);
   assert.equal(merged.guidance?.methodology, "Kontinuitet først.");
+});
+
+test("serveren retter type når AI skriver repetisjoner men returnerer rolig", () => {
+  const merged = mergeAiImprovements(
+    makePlan(),
+    aiWeeks({
+      type: "rolig",
+      title: "6 × 200 m repetisjoner",
+      desc: "Oppvarming rolig. Løp 6 × 200 m i R-fart med full pause.",
+    })
+  );
+  const day = merged.weeks[0].days[1];
+  assert.equal(day.type, "repetisjoner");
+  assert.equal(day.pace, "4:44–4:55/km");
+  assert.equal(day.hr, "Styres av fart, ikke puls");
+});
+
+test("innholdet kan også korrigere feil foreslått intervall til rolig", () => {
+  const merged = mergeAiImprovements(
+    makePlan(),
+    aiWeeks({
+      type: "intervall",
+      title: "Rolig restitusjonsløp",
+      desc: "Løp hele turen lett i E-fart.",
+    })
+  );
+  const day = merged.weeks[0].days[1];
+  assert.equal(day.type, "rolig");
+  assert.equal(day.pace, "6:30–7:28/km");
+  assert.equal(day.hr, "65–79 % av makspuls");
 });
 
 test("hviledager kan ikke gjøres om til løpeøkter", () => {
