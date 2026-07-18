@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import {
+  ApiError,
+  FinishReason,
+  GoogleGenAI,
+  ThinkingLevel,
+} from "@google/genai";
 import { prisma } from "@/lib/db";
 import { DISTANCES } from "@/lib/vdot";
 import { fmtDuration } from "@/lib/vdot";
@@ -11,6 +16,7 @@ import { IMPROVEMENTS_SCHEMA, mergeAiImprovements } from "@/lib/ai-merge";
 import { auditPlan } from "@/lib/plan-quality";
 
 export const maxDuration = 300;
+const GEMINI_MODEL = "gemini-3.5-flash";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isCoachAuthenticated())) {
@@ -18,9 +24,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const { id } = await params;
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_KEY) {
     return NextResponse.json(
-      { error: "AI er ikke konfigurert. Legg til ANTHROPIC_API_KEY i .env for å aktivere AI-forbedring." },
+      { error: "AI er ikke konfigurert. Legg til GEMINI_KEY for å aktivere AI-forbedring." },
       { status: 503 }
     );
   }
@@ -88,7 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     console.error("Lagret program har ugyldig JSON:", error);
     return NextResponse.json({ error: "Programmet har ugyldige lagrede data." }, { status: 500 });
   }
-  const client = new Anthropic();
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_KEY });
 
   const system = `Du er en av verdens fremste løpecoacher, med dyp kunnskap om Jack Daniels' treningsfilosofi (VDOT, E/M/T/I/R-intensiteter, periodisering i fire faser), samt prinsippene til Renato Canova, Arthur Lydiard og Peter Coe.
 
@@ -133,21 +139,28 @@ Programmet (JSON):
 ${JSON.stringify({ weeks: plan.weeks })}`;
 
   try {
-    const stream = client.messages.stream({
-      model: "claude-opus-4-8",
-      max_tokens: 32000,
-      thinking: { type: "adaptive" },
-      output_config: { format: { type: "json_schema", schema: IMPROVEMENTS_SCHEMA } },
-      system,
-      messages: [{ role: "user", content: userMsg }],
+    const response = await client.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: userMsg,
+      config: {
+        systemInstruction: system,
+        maxOutputTokens: 32_768,
+        responseMimeType: "application/json",
+        responseJsonSchema: IMPROVEMENTS_SCHEMA,
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW,
+        },
+      },
     });
-    const message = await stream.finalMessage();
-
-    if (message.stop_reason === "refusal" || message.stop_reason === "max_tokens") {
+    const finishReason = response.candidates?.[0]?.finishReason;
+    if (finishReason === FinishReason.MAX_TOKENS) {
       throw new Error("AI_INCOMPLETE");
     }
+    if (finishReason && finishReason !== FinishReason.STOP) {
+      throw new Error("AI_BLOCKED");
+    }
 
-    const text = message.content.find((b) => b.type === "text")?.text;
+    const text = response.text;
     if (!text) throw new Error("Tomt svar fra AI");
     const updated = mergeAiImprovements(plan, JSON.parse(text));
     const qualityContext = {
@@ -204,14 +217,39 @@ ${JSON.stringify({ weeks: plan.weeks })}`;
       where: { id, aiLockedUntil: lockUntil },
       data: { aiLockedUntil: null },
     });
-    if (err instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json({ error: "Ugyldig ANTHROPIC_API_KEY." }, { status: 502 });
-    }
-    if (err instanceof Anthropic.RateLimitError) {
-      return NextResponse.json({ error: "AI-tjenesten er opptatt – prøv igjen om litt." }, { status: 502 });
+    if (err instanceof ApiError) {
+      const apiMessage = err.message.toLowerCase();
+      if (
+        err.status === 401 ||
+        err.status === 403 ||
+        (err.status === 400 && apiMessage.includes("api key"))
+      ) {
+        return NextResponse.json(
+          { error: "Gemini API-nøkkelen er ugyldig eller mangler tilgang." },
+          { status: 502 }
+        );
+      }
+      if (err.status === 429) {
+        return NextResponse.json(
+          { error: "Gemini-kvoten er brukt opp eller tjenesten er opptatt. Prøv igjen senere." },
+          { status: 429, headers: { "Retry-After": "60" } }
+        );
+      }
+      if (err.status === 404 && apiMessage.includes("model")) {
+        return NextResponse.json(
+          { error: `Gemini-modellen ${GEMINI_MODEL} er ikke tilgjengelig for denne API-nøkkelen.` },
+          { status: 502 }
+        );
+      }
     }
     if (err instanceof Error && err.message === "AI_INCOMPLETE") {
       return NextResponse.json({ error: "AI-en kunne ikke fullføre forbedringen. Prøv igjen." }, { status: 502 });
+    }
+    if (err instanceof Error && err.message === "AI_BLOCKED") {
+      return NextResponse.json(
+        { error: "Gemini avbrøt svaret før forbedringen var ferdig. Ingen endringer ble lagret." },
+        { status: 502 }
+      );
     }
     if (err instanceof Error && err.message === "AI_UNSAFE_PLAN") {
       return NextResponse.json(
