@@ -40,15 +40,30 @@ export interface PaceCard {
   desc: string;
 }
 
+export interface CoachingPrinciple {
+  title: string;
+  desc: string;
+}
+
+export interface PlanGuidance {
+  methodology: string;
+  principles: CoachingPrinciple[];
+}
+
 export interface Plan {
   paces: PaceCard[];
   weeks: PlanWeek[];
+  /** Praktiske regler som gjør planen trygg å styre etter i hverdagen. */
+  guidance?: PlanGuidance;
 }
 
 export interface ProgramInput {
   athleteName: string;
   targetRace: string;
   vdot: number;
+  /** Valgfri måltid i sekunder. Treningsfarter styres fortsatt av nåværende VDOT. */
+  goalTimeSec?: number | null;
+  experienceLevel?: "ny" | "mosjonist" | "erfaren";
   weeks: number;
   daysPerWeek: number;
   weeklyKm: number;

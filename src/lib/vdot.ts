@@ -33,6 +33,16 @@ export function fmtTime(totalSec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Formatterer en varighet som h:mm:ss, eller m:ss under én time. */
+export function fmtDuration(totalSec: number): string {
+  const sec = Math.round(totalSec);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h === 0) return `${m}:${String(s).padStart(2, "0")}`;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
 /** Fart for en gitt delstrekning, f.eks. per 400 m. */
 export function fmtSplit(secPerKm: number, meters: number): string {
   return fmtTime((secPerKm * meters) / 1000);

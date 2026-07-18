@@ -32,6 +32,8 @@ export async function createProgram(formData: FormData) {
       athleteName: input.athleteName,
       targetRace: input.targetRace,
       vdot: input.vdot,
+      goalTimeSec: input.goalTimeSec,
+      experienceLevel: input.experienceLevel ?? "mosjonist",
       weeks: input.weeks,
       daysPerWeek: input.daysPerWeek,
       weeklyKm: input.weeklyKm,

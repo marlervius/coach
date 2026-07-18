@@ -23,6 +23,22 @@ test("gyldig programinput aksepteres", () => {
   const input = parseProgramInput(validForm());
   assert.equal(input.startDate, "2026-07-20");
   assert.equal(input.weeklyKm, 15);
+  assert.equal(input.experienceLevel, "mosjonist");
+});
+
+test("måltid og erfaringsnivå parses strukturert", () => {
+  const form = validForm();
+  form.set("goalTime", "22:00");
+  form.set("experienceLevel", "erfaren");
+  const input = parseProgramInput(form);
+  assert.equal(input.goalTimeSec, 1_320);
+  assert.equal(input.experienceLevel, "erfaren");
+});
+
+test("urealistisk måltid avvises", () => {
+  const form = validForm();
+  form.set("goalTime", "0:05:00");
+  assert.throws(() => parseProgramInput(form), ValidationError);
 });
 
 test("startdato må være mandag", () => {
@@ -48,6 +64,7 @@ test("planoppdatering bevarer struktur og markerer endret dag", () => {
   assert.equal(updated.weeks[0].days[0].title, "Tilpasset hviledag");
   assert.equal(updated.weeks[0].days[0].edited, true);
   assert.deepEqual(updated.paces, current.paces);
+  assert.deepEqual(updated.guidance, current.guidance);
   assert.equal(updated.weeks[0].days[0].date, current.weeks[0].days[0].date);
 });
 

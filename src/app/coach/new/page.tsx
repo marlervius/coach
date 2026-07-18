@@ -32,8 +32,8 @@ export default async function NewProgramPage({
       </Link>
       <h1 className="text-3xl font-bold tracking-tight mt-2 mb-1">Nytt treningsprogram</h1>
       <p className="text-slate-500 mb-8">
-        Programmet genereres automatisk basert på Jack Daniels&apos; treningsprinsipper. Du kan
-        redigere alle økter etterpå.
+        Individuell intensitetsstyring, trygg progresjon og konkurransespesifikk periodisering
+        inspirert av Daniels, Lydiard og Canova. Du kan redigere alle økter etterpå.
       </p>
 
       <form action={createProgram} className="bg-white border border-slate-200 rounded-xl p-6 space-y-5">
@@ -59,6 +59,30 @@ export default async function NewProgramPage({
           <div>
             <label className={label} htmlFor="vdot">VDOT</label>
             <input className={field} id="vdot" name="vdot" type="number" step="0.1" min="20" max="85" required placeholder="F.eks. 50" />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={label} htmlFor="goalTime">Måltid (valgfritt)</label>
+            <input
+              className={field}
+              id="goalTime"
+              name="goalTime"
+              inputMode="numeric"
+              placeholder="F.eks. 1:59:00"
+              pattern="\d{1,2}:\d{2}(:\d{2})?"
+            />
+            <p className="text-xs text-slate-400 mt-1">mm:ss eller t:mm:ss</p>
+          </div>
+          <div>
+            <label className={label} htmlFor="experienceLevel">Løpeerfaring</label>
+            <select className={field} id="experienceLevel" name="experienceLevel" defaultValue="mosjonist">
+              <option value="ny">Ny – under 1 år regelmessig</option>
+              <option value="mosjonist">Mosjonist – 1–3 år</option>
+              <option value="erfaren">Erfaren – over 3 år</option>
+            </select>
+            <p className="text-xs text-slate-400 mt-1">Styrer progresjon og antall harddager</p>
           </div>
         </div>
 
@@ -98,6 +122,9 @@ export default async function NewProgramPage({
         <div>
           <label className={label} htmlFor="notes">Notater (valgfritt)</label>
           <textarea className={field} id="notes" name="notes" rows={2} placeholder="F.eks. skadehistorikk, tilgang til bane, osv." />
+          <p className="text-xs text-slate-400 mt-1">
+            Brukes som coachkontekst ved AI-tilpasning; gjennomgå alltid planen ved skade eller sykdom.
+          </p>
         </div>
 
         <button
