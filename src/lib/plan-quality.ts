@@ -47,6 +47,17 @@ function isRecoveryWeek(phaseName: string): boolean {
   return phaseName.toLocaleLowerCase("nb-NO").includes("restitusjonsuke");
 }
 
+function languageArtifact(text: string): string | undefined {
+  const english = text.match(
+    /\b(this|that|with|and then|your|easy pace|recovery run|rest day|training week)\b/i
+  )?.[0];
+  if (english) return english;
+
+  return text.match(
+    /\b(?:korrigert|justert|endret|redusert|økt|dagen|ro)\s+to\b/i
+  )?.[0];
+}
+
 function hasQualityContent(day: Plan["weeks"][number]["days"][number]): boolean {
   if (QUALITY_TYPES.has(day.type)) return true;
   if (day.type !== "langtur") return false;
@@ -91,10 +102,33 @@ function declaredType(text: string): string | undefined {
 export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityReport {
   const issues: PlanQualityIssue[] = [];
   const paceByKey = new Map(plan.paces.map((pace) => [pace.key, pace]));
-  const easyPace = paceByKey.get("E")?.range;
   const experienceLevel = context.experienceLevel ?? "mosjonist";
 
   for (const week of plan.weeks) {
+    const calculatedWeekKm = round05(
+      week.days.reduce((sum, day) => sum + day.km, 0)
+    );
+    if (calculatedWeekKm !== week.km) {
+      issues.push({
+        code: "week-total-mismatch",
+        severity: "error",
+        weekNr: week.nr,
+        title: `Ukessummen er feil i uke ${week.nr}`,
+        desc: `Ukeoverskriften viser ${week.km} km, mens øktene summerer seg til ${calculatedWeekKm} km.`,
+      });
+    }
+
+    const weekLanguage = languageArtifact(`${week.phaseName} ${week.focus}`);
+    if (weekLanguage) {
+      issues.push({
+        code: "language-artifact",
+        severity: "warning",
+        weekNr: week.nr,
+        title: `Språkfeil i uke ${week.nr}`,
+        desc: `Uketeksten inneholder «${weekLanguage}». Hele planen skal være tydelig og korrekt norsk.`,
+      });
+    }
+
     const recoveryWeek = isRecoveryWeek(week.phaseName);
     const qualityDays = week.days.filter(hasQualityContent);
     const qualityLimit =
@@ -139,7 +173,8 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
     }
 
     const longRun = longRuns[0];
-    if (longRun && week.km > 0 && longRun.km / week.km > 0.42) {
+    const maxLongRunShare = context.daysPerWeek <= 3 ? 0.45 : 0.42;
+    if (longRun && week.km > 0 && longRun.km / week.km > maxLongRunShare) {
       issues.push({
         code: "long-run-share",
         severity: "warning",
@@ -151,6 +186,18 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
     }
 
     for (const day of week.days) {
+      const dayLanguage = languageArtifact(`${day.title} ${day.desc}`);
+      if (dayLanguage) {
+        issues.push({
+          code: "language-artifact",
+          severity: "warning",
+          weekNr: week.nr,
+          date: day.date,
+          title: `Språkfeil ${day.date}`,
+          desc: `Øktteksten inneholder «${dayLanguage}». Skriv konsekvent og korrekt norsk.`,
+        });
+      }
+
       if (day.type === "hvile") {
         if (day.km !== 0 || day.pace || day.hr) {
           issues.push({
@@ -217,15 +264,18 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
       }
 
       const expectedKey = TYPE_TO_PACE_KEY[day.type];
-      if (expectedKey && expectedKey !== "E" && easyPace && day.pace === easyPace) {
-        const expected = paceByKey.get(expectedKey);
+      const expected = expectedKey ? paceByKey.get(expectedKey) : undefined;
+      if (
+        expected &&
+        (day.pace !== expected.range || day.hr !== expected.hr)
+      ) {
         issues.push({
           code: "pace-type-mismatch",
           severity: "error",
           weekNr: week.nr,
           date: day.date,
-          title: `Feil fartssone ${day.date}`,
-          desc: `${day.title} viser rolig fart. Velg økttypen på nytt for å sette ${expected?.range ?? expectedKey}.`,
+          title: `Feil fart eller pulssone ${day.date}`,
+          desc: `${day.title} er merket «${day.type}» og skal vise ${expected.range} og ${expected.hr}.`,
         });
       }
 
@@ -337,7 +387,7 @@ export function auditPlan(plan: Plan, context: PlanQualityContext): PlanQualityR
   const score = Math.max(0, 100 - deductions);
   return {
     score,
-    ready: issues.every((issue) => issue.severity !== "error"),
+    ready: issues.length === 0,
     issues,
   };
 }

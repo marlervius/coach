@@ -22,6 +22,7 @@ import { auditPlan } from "@/lib/plan-quality";
 
 export const maxDuration = 300;
 const GEMINI_MODEL = "gemini-3.5-flash";
+const MAX_REPAIR_ROUNDS = 2;
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!(await isCoachAuthenticated())) {
@@ -166,8 +167,8 @@ ${JSON.stringify(plan.paces)}
 Programmet (JSON):
 ${JSON.stringify({ weeks: plan.weeks })}
 
-Fagkontroll før forbedring (alle ERROR-punkter må være borte i svaret):
-${JSON.stringify(existingQualityIssues.filter((issue) => issue.severity === "error"))}`;
+Fagkontroll før forbedring (alle punkter, også advarsler, skal være borte i sluttresultatet):
+${JSON.stringify(existingQualityIssues)}`;
 
   try {
     const requestImprovement = async (contents: string): Promise<unknown> => {
@@ -200,19 +201,21 @@ ${JSON.stringify(existingQualityIssues.filter((issue) => issue.severity === "err
     let finalResponse = await requestImprovement(userMsg);
     let updated = mergeAiImprovements(plan, finalResponse);
     updated = stabilizeAiPlan(updated, plan, qualityContext);
-    let remainingErrors = auditPlan(updated, qualityContext).issues.filter(
-      (issue) => issue.severity === "error"
-    );
+    let remainingIssues = auditPlan(updated, qualityContext).issues;
 
-    if (remainingErrors.length > 0) {
-      const repairMsg = `Første forbedringsforslag besto ikke den automatiske fagkontrollen.
+    for (
+      let repairRound = 1;
+      remainingIssues.length > 0 && repairRound <= MAX_REPAIR_ROUNDS;
+      repairRound++
+    ) {
+      const repairMsg = `Forbedringsforslaget besto ikke hele den automatiske fagkontrollen.
 
-Du skal nå reparere planen. Du har full tilgang til å endre alle ikke-konkurransedager, inkludert å gjøre hvile om til rolig løping eller løping om til hvile. Rett samtlige ERROR-punkter nedenfor uten å innføre nye avvik.
+Dette er reparasjonsrunde ${repairRound} av ${MAX_REPAIR_ROUNDS}. Du har full tilgang til å endre alle ikke-konkurransedager, inkludert å gjøre hvile om til rolig løping eller løping om til hvile. Rett samtlige punkter nedenfor, også advarsler og språkfeil, uten å innføre nye avvik. Sluttresultatet skal ha 100/100 og ingen kontrollpunkter.
 
-Gjenværende ERROR-punkter:
-${JSON.stringify(remainingErrors)}
+Gjenværende kontrollpunkter:
+${JSON.stringify(remainingIssues)}
 
-Planen etter første forbedringsrunde:
+Planen som skal repareres:
 ${JSON.stringify({ weeks: updated.weeks })}
 
 Treningsfarter:
@@ -221,18 +224,19 @@ ${JSON.stringify(updated.paces)}
 Utøverprofil:
 ${program.athleteName}, ${DISTANCES[program.targetRace]?.label ?? program.targetRace}, VDOT ${program.vdot}, ${program.daysPerWeek} økter per uke, ${program.weeklyKm} km nåværende ukesvolum.
 
-Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uke, og en ny endringsrapport. Kontroller resultatet mot hvert ERROR-punkt før du svarer.`;
+Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uke, og en ny endringsrapport. Kontroller resultatet mot hvert kontrollpunkt før du svarer.`;
 
       finalResponse = await requestImprovement(repairMsg);
       updated = mergeAiImprovements(updated, finalResponse);
       updated = stabilizeAiPlan(updated, plan, qualityContext);
-      remainingErrors = auditPlan(updated, qualityContext).issues.filter(
-        (issue) => issue.severity === "error"
-      );
+      remainingIssues = auditPlan(updated, qualityContext).issues;
     }
 
-    if (remainingErrors.length > 0) {
-      console.error("AI-planen besto ikke fagkontrollen etter reparasjonsrunde:", remainingErrors);
+    if (remainingIssues.length > 0) {
+      console.error(
+        "AI-planen besto ikke hele fagkontrollen etter reparasjonsrundene:",
+        remainingIssues
+      );
       throw new Error("AI_UNSAFE_PLAN");
     }
     const report = buildAiChangeReport(plan, updated, finalResponse);
@@ -306,7 +310,10 @@ Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uk
     }
     if (err instanceof Error && err.message === "AI_UNSAFE_PLAN") {
       return NextResponse.json(
-        { error: "AI-en forsøkte automatisk å reparere planen, men noen fagfeil gjenstår. Ingen endringer ble lagret." },
+        {
+          error:
+            "AI-en forsøkte automatisk å reparere planen, men hele fagkontrollen ble ikke bestått. Ingen endringer ble lagret.",
+        },
         { status: 422 }
       );
     }
