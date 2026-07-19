@@ -16,6 +16,7 @@
     "src/lib/types.ts",
     "src/lib/validation.ts",
     "src/lib/vdot.ts",
+    "src/lib/workout-completion.ts",
     "tests/**/*.ts"
   ]
 }

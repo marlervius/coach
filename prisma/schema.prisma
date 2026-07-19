@@ -27,4 +27,16 @@ model Program {
   aiLockedUntil DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  workoutCompletions WorkoutCompletion[]
+}
+
+model WorkoutCompletion {
+  id          String   @id @default(cuid())
+  programId   String
+  workoutDate String
+  completedAt DateTime @default(now())
+  program     Program  @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, workoutDate])
+  @@index([programId])
 }

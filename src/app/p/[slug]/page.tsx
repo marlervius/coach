@@ -5,6 +5,7 @@ import { DISTANCES, fmtDuration } from "@/lib/vdot";
 import { DAY_NAMES, TYPE_LABELS, type Plan, type DayType } from "@/lib/types";
 import { daysBetween, todayInTimeZone } from "@/lib/date";
 import { TrainingGuidance } from "@/components/TrainingGuidance";
+import { WorkoutCompletionToggle } from "@/components/WorkoutCompletionToggle";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -24,10 +25,20 @@ const TYPE_STYLE: Record<DayType, { badge: string; border: string }> = {
 
 export default async function AthletePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const program = await prisma.program.findUnique({ where: { slug } });
+  const program = await prisma.program.findUnique({
+    where: { slug },
+    include: {
+      workoutCompletions: {
+        select: { workoutDate: true },
+      },
+    },
+  });
   if (!program) notFound();
 
   const plan: Plan = JSON.parse(program.planJson);
+  const completedDates = new Set(
+    program.workoutCompletions.map((completion) => completion.workoutDate)
+  );
   const today = todayInTimeZone();
   const currentWeekIdx = plan.weeks.findIndex((w) =>
     w.days.some((d) => d.date >= today)
@@ -120,6 +131,13 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
                       </span>
                       <span className="font-semibold">{day.title}</span>
                       {day.km > 0 && <span className="text-sm text-slate-500">{day.km} km</span>}
+                      {day.type !== "hvile" && day.km > 0 && (
+                        <WorkoutCompletionToggle
+                          slug={slug}
+                          date={day.date}
+                          initialCompleted={completedDates.has(day.date)}
+                        />
+                      )}
                     </div>
                     {day.desc && <p className="text-sm text-slate-600 mt-1.5">{day.desc}</p>}
                     {(day.pace || day.hr) && (
