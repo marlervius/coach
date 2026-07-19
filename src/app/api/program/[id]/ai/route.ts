@@ -17,6 +17,7 @@ import {
   IMPROVEMENTS_SCHEMA,
   mergeAiImprovements,
 } from "@/lib/ai-merge";
+import { stabilizeAiPlan } from "@/lib/ai-plan-repair";
 import { auditPlan } from "@/lib/plan-quality";
 
 export const maxDuration = 300;
@@ -198,6 +199,7 @@ ${JSON.stringify(existingQualityIssues.filter((issue) => issue.severity === "err
 
     let finalResponse = await requestImprovement(userMsg);
     let updated = mergeAiImprovements(plan, finalResponse);
+    updated = stabilizeAiPlan(updated, plan, qualityContext);
     let remainingErrors = auditPlan(updated, qualityContext).issues.filter(
       (issue) => issue.severity === "error"
     );
@@ -223,6 +225,7 @@ Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uk
 
       finalResponse = await requestImprovement(repairMsg);
       updated = mergeAiImprovements(updated, finalResponse);
+      updated = stabilizeAiPlan(updated, plan, qualityContext);
       remainingErrors = auditPlan(updated, qualityContext).issues.filter(
         (issue) => issue.severity === "error"
       );

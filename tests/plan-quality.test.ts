@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generatePlan } from "../src/lib/generator";
+import { stabilizeAiPlan } from "../src/lib/ai-plan-repair";
 import { auditPlan } from "../src/lib/plan-quality";
 import { inferRunningType } from "../src/lib/training-type";
 import type { ProgramInput } from "../src/lib/types";
@@ -175,4 +176,37 @@ test("generatoren består fagkontrollen på tvers av distanser og frekvenser", (
       );
     }
   }
+});
+
+test("AI-stabiliseringen gjenoppretter langtur og fjerner overskytende harddag", () => {
+  const baseline = generatePlan(input);
+  const broken = structuredClone(baseline);
+  const week = broken.weeks.at(-2)!;
+  const longRun = week.days.find((day) => day.type === "langtur")!;
+  longRun.type = "maratonfart";
+  longRun.title = `${longRun.km} km i maratonfart`;
+  longRun.desc = `${longRun.km} km i M-fart.`;
+  longRun.pace = broken.paces.find((pace) => pace.key === "M")!.range;
+  longRun.hr = broken.paces.find((pace) => pace.key === "M")!.hr;
+
+  const beforeCodes = new Set(
+    auditPlan(broken, context).issues.map((issue) => issue.code)
+  );
+  assert.ok(beforeCodes.has("too-many-quality-days"));
+  assert.ok(beforeCodes.has("long-run-count"));
+
+  const stabilized = stabilizeAiPlan(broken, baseline, context);
+  const repairedLongRun = stabilized.weeks
+    .at(-2)!
+    .days.find((day) => day.date === longRun.date)!;
+  const after = auditPlan(stabilized, context);
+
+  assert.equal(repairedLongRun.type, "langtur");
+  assert.match(repairedLongRun.title, /^Langtur/);
+  assert.doesNotMatch(repairedLongRun.desc, /\b(M-fart|maratonfart)\b/i);
+  assert.equal(
+    after.issues.filter((issue) => issue.severity === "error").length,
+    0,
+    after.issues.map((issue) => issue.desc).join("\n")
+  );
 });
