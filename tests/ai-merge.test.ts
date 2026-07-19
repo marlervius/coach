@@ -137,11 +137,18 @@ test("innholdet kan også korrigere feil foreslått intervall til rolig", () => 
   assert.equal(day.hr, "65–79 % av makspuls");
 });
 
-test("hviledager kan ikke gjøres om til løpeøkter", () => {
+test("AI kan gjøre en hviledag om til en rolig løpeøkt", () => {
   const ai = aiWeeks();
   ai.weeks[0].days[0].type = "rolig";
+  ai.weeks[0].days[0].title = "Rolig 4 km";
+  ai.weeks[0].days[0].desc = "Løp 4 km lett i E-fart.";
+  ai.weeks[0].days[0].km = 4;
   const merged = mergeAiImprovements(makePlan(), ai);
-  assert.equal(merged.weeks[0].days[0].type, "hvile");
+  const day = merged.weeks[0].days[0];
+  assert.equal(day.type, "rolig");
+  assert.equal(day.km, 4);
+  assert.equal(day.pace, "6:30–7:28/km");
+  assert.equal(day.hr, "65–79 % av makspuls");
 });
 
 test("ingen dag kan gjøres om til konkurranse", () => {
@@ -149,6 +156,35 @@ test("ingen dag kan gjøres om til konkurranse", () => {
   const day = merged.weeks[0].days[1];
   assert.equal(day.type, "rolig");
   assert.equal(day.pace, "6:30–7:28/km");
+});
+
+test("eksisterende konkurransedag beholder type, distanse, fart og puls", () => {
+  const plan = makePlan();
+  plan.weeks[0].days[1] = {
+    ...plan.weeks[0].days[1],
+    type: "konkurranse",
+    title: "KONKURRANSE – 5 km",
+    desc: "Løpsdag.",
+    km: 5,
+    pace: "5:00/km",
+    hr: "Konkurranseinnsats",
+  };
+  const merged = mergeAiImprovements(
+    plan,
+    aiWeeks({
+      type: "hvile",
+      title: "Hvile",
+      desc: "Ingen løping.",
+      km: 0,
+      pace: "",
+      hr: "",
+    })
+  );
+  const day = merged.weeks[0].days[1];
+  assert.equal(day.type, "konkurranse");
+  assert.equal(day.km, 5);
+  assert.equal(day.pace, "5:00/km");
+  assert.equal(day.hr, "Konkurranseinnsats");
 });
 
 test("manuelt endrede dager blir også kvalitetssikret", () => {

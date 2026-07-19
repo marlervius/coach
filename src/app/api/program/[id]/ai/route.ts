@@ -118,13 +118,14 @@ Du får et generert treningsprogram i JSON-format, og eventuelt en beskjed fra c
 - Uten beskjed fra coachen: behold hovedoppskriften, men rett alle faglige og interne avvik du finner.
 - Distansefeltet "km", distanser nevnt i tittel/beskrivelse og samlet ukesvolum må beskrive den samme planen. Endrer du én av dem, oppdaterer du de andre relevante feltene.
 - Alle farter du oppgir i teksten skal være konsistente med utøverens treningsfarter (oppgitt i input).
-- Eksisterende hviledager og konkurransedager kan aldri gjøres om til noe annet. En feilmerket løpedag kan bare gjøres om til hvile når tittelen og beskrivelsen tydelig beskriver hvile; sett da km til 0 og fart/puls til tom tekst. Ingen dag kan gjøres om til konkurranse.
+- Du har full redigeringstilgang til alle dager unntatt selve konkurransedagen. Du kan gjøre hvile om til en kort løpeøkt og en løpeøkt om til hvile når det er nødvendig for riktig frekvens, belastning eller restitusjon. Hvile skal ha km 0 og tom fart/puls. Konkurransedagens type, distanse, fart og puls skal ikke endres, og ingen annen dag kan gjøres om til konkurranse.
 - Ikke øk antall kvalitetsdager i en uke. Hvis fagkontrollen oppgir for mange harddager, reduser antallet. Hvis coachen ber om intervaller, bytt en eksisterende kvalitetsøkt – ikke gjør en ekstra rolig dag hard.
-- Langtur skal forbli langtur. En rolig tur kan bare bli kvalitetsøkt hvis coachen uttrykkelig ber om akkurat den dagen.
+- Behold ukas reelle hovedlangtur som langtur. En kort tur som feilaktig er merket langtur skal korrigeres til riktig type.
 - Det skal være minst én hel rolig dag eller hviledag mellom tydelige hardøkter.
 - En restitusjonsuke skal ha minst 10 % lavere totalvolum enn uka før og maksimalt én tydelig kvalitetsdag.
 - En vanlig treningsuke skal ha nøyaktig én langtur. Korte rolige turer, også «rolig langkjøring», skal ha type "rolig".
 - En økt med tidsbaserte drag må ha en realistisk totaldistanse for oppvarming, arbeidsdrag, pauser og nedjogg.
+- Hvis konkurranseuka har for få løpeøkter, gjør en egnet hviledag om til en kort rolig tur på 3–5 km. Flytt eller legg inn hvile andre steder ved behov, slik at frekvens og overskudd begge blir riktige.
 - Datoene i svaret ditt skal være identiske med input, og rekkefølgen uendret.
 - Dager merket "edited" er manuelt endret av coachen. De skal også kontrolleres og kan rettes hvis innhold, type, distanse, fart eller puls ikke lenger stemmer sammen.
 - Alt skal være på norsk. Skriv direkte til utøveren ("du").
@@ -168,39 +169,70 @@ Fagkontroll før forbedring (alle ERROR-punkter må være borte i svaret):
 ${JSON.stringify(existingQualityIssues.filter((issue) => issue.severity === "error"))}`;
 
   try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: userMsg,
-      config: {
-        systemInstruction: system,
-        maxOutputTokens: 32_768,
-        responseMimeType: "application/json",
-        responseJsonSchema: IMPROVEMENTS_SCHEMA,
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
+    const requestImprovement = async (contents: string): Promise<unknown> => {
+      const response = await client.models.generateContent({
+        model: GEMINI_MODEL,
+        contents,
+        config: {
+          systemInstruction: system,
+          maxOutputTokens: 32_768,
+          responseMimeType: "application/json",
+          responseJsonSchema: IMPROVEMENTS_SCHEMA,
+          thinkingConfig: {
+            thinkingLevel: ThinkingLevel.LOW,
+          },
         },
-      },
-    });
-    const finishReason = response.candidates?.[0]?.finishReason;
-    if (finishReason === FinishReason.MAX_TOKENS) {
-      throw new Error("AI_INCOMPLETE");
-    }
-    if (finishReason && finishReason !== FinishReason.STOP) {
-      throw new Error("AI_BLOCKED");
-    }
+      });
+      const finishReason = response.candidates?.[0]?.finishReason;
+      if (finishReason === FinishReason.MAX_TOKENS) {
+        throw new Error("AI_INCOMPLETE");
+      }
+      if (finishReason && finishReason !== FinishReason.STOP) {
+        throw new Error("AI_BLOCKED");
+      }
 
-    const text = response.text;
-    if (!text) throw new Error("Tomt svar fra AI");
-    const parsed = JSON.parse(text);
-    const updated = mergeAiImprovements(plan, parsed);
-    const report = buildAiChangeReport(plan, updated, parsed);
-    const remainingErrors = auditPlan(updated, qualityContext).issues.filter(
+      const text = response.text;
+      if (!text) throw new Error("Tomt svar fra AI");
+      return JSON.parse(text);
+    };
+
+    let finalResponse = await requestImprovement(userMsg);
+    let updated = mergeAiImprovements(plan, finalResponse);
+    let remainingErrors = auditPlan(updated, qualityContext).issues.filter(
       (issue) => issue.severity === "error"
     );
+
     if (remainingErrors.length > 0) {
-      console.error("AI-planen besto ikke fagkontrollen:", remainingErrors);
+      const repairMsg = `Første forbedringsforslag besto ikke den automatiske fagkontrollen.
+
+Du skal nå reparere planen. Du har full tilgang til å endre alle ikke-konkurransedager, inkludert å gjøre hvile om til rolig løping eller løping om til hvile. Rett samtlige ERROR-punkter nedenfor uten å innføre nye avvik.
+
+Gjenværende ERROR-punkter:
+${JSON.stringify(remainingErrors)}
+
+Planen etter første forbedringsrunde:
+${JSON.stringify({ weeks: updated.weeks })}
+
+Treningsfarter:
+${JSON.stringify(updated.paces)}
+
+Utøverprofil:
+${program.athleteName}, ${DISTANCES[program.targetRace]?.label ?? program.targetRace}, VDOT ${program.vdot}, ${program.daysPerWeek} økter per uke, ${program.weeklyKm} km nåværende ukesvolum.
+
+Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uke, og en ny endringsrapport. Kontroller resultatet mot hvert ERROR-punkt før du svarer.`;
+
+      finalResponse = await requestImprovement(repairMsg);
+      updated = mergeAiImprovements(updated, finalResponse);
+      remainingErrors = auditPlan(updated, qualityContext).issues.filter(
+        (issue) => issue.severity === "error"
+      );
+    }
+
+    if (remainingErrors.length > 0) {
+      console.error("AI-planen besto ikke fagkontrollen etter reparasjonsrunde:", remainingErrors);
       throw new Error("AI_UNSAFE_PLAN");
     }
+    const report = buildAiChangeReport(plan, updated, finalResponse);
     const saved = await prisma.program.updateMany({
       where: { id, revision, aiLockedUntil: lockUntil },
       data: {
@@ -271,7 +303,7 @@ ${JSON.stringify(existingQualityIssues.filter((issue) => issue.severity === "err
     }
     if (err instanceof Error && err.message === "AI_UNSAFE_PLAN") {
       return NextResponse.json(
-        { error: "AI-forslaget besto ikke hele fagkontrollen og ble ikke lagret. Prøv igjen med en tydeligere beskjed." },
+        { error: "AI-en forsøkte automatisk å reparere planen, men noen fagfeil gjenstår. Ingen endringer ble lagret." },
         { status: 422 }
       );
     }

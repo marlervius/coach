@@ -189,35 +189,30 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
       const desc = aiText(improvedDay.desc, "Øktbeskrivelse", 4_000);
       let km = aiKm(improvedDay.km, day.km);
 
-      // Typebytte tillates kun mellom løpe-økttyper; hvile/konkurranse er fredet.
+      // AI-en kan endre alle ikke-konkurransedager, også mellom hvile og løping.
+      // Konkurransedagen er fortsatt en strukturell sikkerhetsgrense.
       let type = day.type;
       const proposed = improvedDay.type as DayType | undefined;
-      if (RUNNING_TYPES.has(day.type)) {
-        if (proposed && RUNNING_TYPES.has(proposed)) type = proposed;
+      if (day.type !== "konkurranse") {
+        if (proposed === "hvile" || (proposed && RUNNING_TYPES.has(proposed))) {
+          type = proposed;
+        }
 
-        // Serveren korrigerer klassifiseringen hvis innholdet motsier AI-feltet.
+        // Serveren korrigerer klassifiseringen hvis innholdet motsier typefeltet.
         const inferred = inferRunningType(title, desc);
         if (inferred && RUNNING_TYPES.has(inferred)) type = inferred;
-        if (
-          inferred === "hvile" &&
-          (proposed === "hvile" || km === 0)
-        ) {
-          type = "hvile";
-        }
+        if (inferred === "hvile" || proposed === "hvile") type = "hvile";
       }
 
       let pace = aiOptionalText(improvedDay.pace, "Fart", 160);
       let hr = aiOptionalText(improvedDay.hr, "Pulssone", 200);
 
       // Hvile og konkurransedistanse er strukturelle sikkerhetsgrenser.
-      if (day.type === "hvile") {
-        type = "hvile";
-        km = 0;
-        pace = undefined;
-        hr = undefined;
-      } else if (day.type === "konkurranse") {
+      if (day.type === "konkurranse") {
         type = "konkurranse";
         km = day.km;
+        pace = day.pace;
+        hr = day.hr;
       } else if (type === "hvile") {
         km = 0;
         pace = undefined;
