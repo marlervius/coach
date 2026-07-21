@@ -40,6 +40,11 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
     program.workoutCompletions.map((completion) => completion.workoutDate)
   );
   const today = todayInTimeZone();
+  const allWorkouts = plan.weeks.flatMap((week) =>
+    week.days.filter((day) => day.type !== "hvile" && day.km > 0)
+  );
+  const completedCount = allWorkouts.filter((day) => completedDates.has(day.date)).length;
+  const dueWorkouts = allWorkouts.filter((day) => day.date <= today).length;
   const currentWeekIdx = plan.weeks.findIndex((w) =>
     w.days.some((d) => d.date >= today)
   );
@@ -61,11 +66,18 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
           Mot {distLabel} · {program.weeks} uker · VDOT {program.vdot}
           {program.goalTimeSec ? ` · mål ${fmtDuration(program.goalTimeSec)}` : ""}
         </p>
-        {daysToRace !== null && daysToRace > 0 && (
-          <p className="mt-4 inline-block bg-white/15 rounded-full px-4 py-1.5 text-sm font-semibold">
-            🏁 {daysToRace} dager til konkurransen
-          </p>
-        )}
+        <div className="mt-4 flex gap-2 flex-wrap">
+          {daysToRace !== null && daysToRace > 0 && (
+            <p className="inline-block bg-white/15 rounded-full px-4 py-1.5 text-sm font-semibold">
+              🏁 {daysToRace} dager til konkurransen
+            </p>
+          )}
+          {dueWorkouts > 0 && (
+            <p className="inline-block bg-white/15 rounded-full px-4 py-1.5 text-sm font-semibold">
+              ✅ {completedCount} av {dueWorkouts} økter gjennomført så langt
+            </p>
+          )}
+        </div>
       </header>
 
       {/* Treningsfarter */}
@@ -89,7 +101,7 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
       {plan.weeks.map((week, wi) => (
         <details
           key={week.nr}
-          open={wi === (currentWeekIdx === -1 ? 0 : currentWeekIdx)}
+          open={wi === (currentWeekIdx === -1 ? plan.weeks.length - 1 : currentWeekIdx)}
           className="bg-white border border-slate-200 rounded-2xl mb-4 overflow-hidden"
         >
           <summary className="cursor-pointer select-none px-6 py-4 hover:bg-slate-50 transition-colors">
@@ -131,7 +143,7 @@ export default async function AthletePage({ params }: { params: Promise<{ slug: 
                       </span>
                       <span className="font-semibold">{day.title}</span>
                       {day.km > 0 && <span className="text-sm text-slate-500">{day.km} km</span>}
-                      {day.type !== "hvile" && day.km > 0 && (
+                      {day.type !== "hvile" && day.km > 0 && day.date <= today && (
                         <WorkoutCompletionToggle
                           slug={slug}
                           date={day.date}

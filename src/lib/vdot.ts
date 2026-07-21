@@ -107,6 +107,24 @@ export function fmtHr(zone: keyof typeof HR_ZONES, hrMax?: number | null): strin
   return `${base} (${Math.round((lo / 100) * hrMax)}–${Math.round((hi / 100) * hrMax)} slag/min)`;
 }
 
+/** Daniels' formel for %VO2max en løper kan holde over en gitt varighet. */
+function pctVO2maxAtDuration(minutes: number): number {
+  return (
+    0.8 +
+    0.1894393 * Math.exp(-0.012778 * minutes) +
+    0.2989558 * Math.exp(-0.1932605 * minutes)
+  );
+}
+
+/** Beregner VDOT fra et løpsresultat (distanse i km, tid i sekunder). */
+export function vdotFromRace(distanceKm: number, timeSec: number): number {
+  if (!(distanceKm > 0) || !(timeSec > 0)) return NaN;
+  const minutes = timeSec / 60;
+  const velocity = (distanceKm * 1000) / minutes; // m/min
+  const vo2 = -4.6 + 0.182258 * velocity + 0.000104 * velocity * velocity;
+  return vo2 / pctVO2maxAtDuration(minutes);
+}
+
 /** Estimert konkurransefart (sek/km) for en distanse, gitt VDOT. */
 export function racePaceSecPerKm(vdot: number, distanceKey: string): number {
   // Typisk %VO2max en trent løper klarer å holde over distansens varighet

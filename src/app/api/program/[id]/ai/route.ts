@@ -142,7 +142,7 @@ Du skal ALLTID returnere en endringsrapport i "report":
 - "reason" forklarer den faglige eller konsistensmessige begrunnelsen.
 - Hvis ingen endringer var nødvendige, returnerer du en tom "changes"-liste og forklarer i "summary" at planen er kontrollert.
 
-Returner ukenummer, fasenavn, ukefokus og dato/type/tittel/beskrivelse/km/fart/puls for hver dag, samt rapporten, i oppgitt JSON-struktur.`;
+Returner BARE ukene der du endrer noe, i oppgitt JSON-struktur: ukenummer, fasenavn, ukefokus og dato/type/tittel/beskrivelse/km/fart/puls for dagene. Endrer du en dag i en uke, tar du med hele uka. Uker du ikke returnerer, beholdes automatisk uendret – ikke gjenta dem. Hvis ingenting trenger endring, returnerer du en tom "weeks"-liste. Rapporten i "report" skal alltid være med.`;
 
   const editedNote = plan.weeks.some((w) => w.days.some((d) => d.edited))
     ? "\n\nMERK: Følgende dager er manuelt endret av coachen og skal kontrolleres ekstra nøye for interne avvik: " +
@@ -240,6 +240,7 @@ Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uk
       where: { id, revision, aiLockedUntil: lockUntil },
       data: {
         planJson: JSON.stringify(updated),
+        previousPlanJson: program.planJson,
         revision: { increment: 1 },
         aiLockedUntil: new Date(Date.now() + 60_000),
       },
@@ -264,7 +265,7 @@ Returner minst alle ukene som må endres, med alle syv dagene i hver berørte uk
       );
     }
 
-    return NextResponse.json({ plan: updated, revision: revision + 1, report });
+    return NextResponse.json({ plan: updated, revision: revision + 1, report, canUndo: true });
   } catch (err) {
     await prisma.program.updateMany({
       where: { id, aiLockedUntil: lockUntil },

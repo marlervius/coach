@@ -4,9 +4,11 @@ import { readJsonBody, RequestBodyError } from "@/lib/request";
 import type { Plan } from "@/lib/types";
 import {
   isCompletableWorkout,
+  isFutureCompletion,
   parseWorkoutCompletionUpdate,
   WorkoutCompletionValidationError,
 } from "@/lib/workout-completion";
+import { todayInTimeZone } from "@/lib/date";
 
 export async function PUT(
   req: NextRequest,
@@ -43,6 +45,13 @@ export async function PUT(
     if (!isCompletableWorkout(plan, update.date)) {
       return NextResponse.json(
         { error: "Datoen tilhører ikke en gjennomførbar økt i programmet" },
+        { status: 400 }
+      );
+    }
+
+    if (isFutureCompletion(update, todayInTimeZone())) {
+      return NextResponse.json(
+        { error: "Økter kan først krysses av på selve treningsdagen" },
         { status: 400 }
       );
     }

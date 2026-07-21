@@ -38,7 +38,17 @@ interface ProgramMeta {
   revision: number;
 }
 
-export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; initialPlan: Plan }) {
+export function ProgramEditor({
+  program,
+  initialPlan,
+  completedDates = [],
+  initialCanUndo = false,
+}: {
+  program: ProgramMeta;
+  initialPlan: Plan;
+  completedDates?: string[];
+  initialCanUndo?: boolean;
+}) {
   const router = useRouter();
   const [plan, setPlan] = useState<Plan>(initialPlan);
   const [editing, setEditing] = useState<string | null>(null); // "w-d"
@@ -49,6 +59,8 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
   const [revision, setRevision] = useState(program.revision);
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiReport, setAiReport] = useState<AiChangeReport | null>(null);
+  const [canUndo, setCanUndo] = useState(initialCanUndo);
+  const completed = useMemo(() => new Set(completedDates), [completedDates]);
   const qualityReport = useMemo(
     () => auditPlan(plan, {
       daysPerWeek: program.daysPerWeek,
@@ -89,6 +101,7 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
       }
       setPlan(data.plan ?? next);
       setRevision(data.revision);
+      setCanUndo(false); // manuell lagring gjør AI-angrepunktet utdatert
       return true;
     } catch {
       setMessage("Kunne ikke lagre – prøv igjen.");
@@ -129,12 +142,46 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
         setPlan(data.plan);
         setRevision(data.revision);
         setAiReport(data.report);
+        setCanUndo(Boolean(data.canUndo));
         setMessage("Programmet er forbedret og konsistenskontrollert av AI. Se over endringene!");
       }
     } catch {
       setMessage("AI-forbedring feilet – sjekk tilkoblingen.");
     } finally {
       setAiRunning(false);
+    }
+  }
+
+  async function undoAI() {
+    if (!confirm("Angre siste AI-endring og gjenopprette planen slik den var før?")) return;
+    setSaving(true);
+    setMessage(null);
+    setAiReport(null);
+    try {
+      const res = await fetch(`/api/program/${program.id}/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision }),
+      });
+      const data = await res.json();
+      if (res.status === 401) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) {
+        if (data.plan) setPlan(data.plan);
+        if (typeof data.revision === "number") setRevision(data.revision);
+        setMessage(data.error ?? "Kunne ikke angre AI-endringen.");
+        return;
+      }
+      setPlan(data.plan);
+      setRevision(data.revision);
+      setCanUndo(false);
+      setMessage("AI-endringen er angret. Planen er tilbake slik den var før.");
+    } catch {
+      setMessage("Kunne ikke angre AI-endringen – prøv igjen.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -191,6 +238,15 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
             >
               {aiRunning ? "AI jobber…" : "✨ Forbedre med AI"}
             </button>
+            {canUndo && (
+              <button
+                onClick={undoAI}
+                disabled={saving || aiRunning}
+                className="border border-violet-300 text-violet-700 hover:bg-violet-50 disabled:opacity-50 text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              >
+                ↩ Angre AI-endring
+              </button>
+            )}
             <button
               onClick={remove}
               disabled={saving || aiRunning}
@@ -305,6 +361,11 @@ export function ProgramEditor({ program, initialPlan }: { program: ProgramMeta; 
                       </span>
                       <span className="font-semibold">{day.title}</span>
                       {day.km > 0 && <span className="text-sm text-slate-500">{day.km} km</span>}
+                      {completed.has(day.date) && day.type !== "hvile" && day.km > 0 && (
+                        <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                          ✓ Gjennomført
+                        </span>
+                      )}
                       {day.edited && (
                         <span className="text-xs text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">endret manuelt</span>
                       )}

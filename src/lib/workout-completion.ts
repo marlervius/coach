@@ -35,3 +35,20 @@ export function isCompletableWorkout(plan: Plan, date: string): boolean {
     )
   );
 }
+
+/** Økter kan bare krysses av til og med dagens dato – aldri frem i tid. */
+export function isFutureCompletion(
+  update: WorkoutCompletionUpdate,
+  today: string
+): boolean {
+  return update.completed && update.date > today;
+}
+
+/** Teller økter som kan krysses av (alt som ikke er hvile). */
+export function countCompletableWorkouts(plan: Plan): number {
+  return plan.weeks.reduce(
+    (sum, week) =>
+      sum + week.days.filter((day) => day.type !== "hvile" && day.km > 0).length,
+    0
+  );
+}

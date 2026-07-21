@@ -10,10 +10,16 @@ export const dynamic = "force-dynamic";
 export default async function ProgramPage({ params }: { params: Promise<{ id: string }> }) {
   await requireCoach();
   const { id } = await params;
-  const program = await prisma.program.findUnique({ where: { id } });
+  const program = await prisma.program.findUnique({
+    where: { id },
+    include: { workoutCompletions: { select: { workoutDate: true } } },
+  });
   if (!program) notFound();
 
   const plan: Plan = JSON.parse(program.planJson);
+  const completedDates = program.workoutCompletions.map(
+    (completion) => completion.workoutDate
+  );
 
   return (
     <main className="max-w-5xl mx-auto w-full px-4 py-8">
@@ -38,6 +44,8 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
           revision: program.revision,
         }}
         initialPlan={plan}
+        completedDates={completedDates}
+        initialCanUndo={Boolean(program.previousPlanJson)}
       />
     </main>
   );
