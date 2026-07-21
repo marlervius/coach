@@ -34,6 +34,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       where: { id, revision },
       data: {
         planJson: JSON.stringify(plan),
+        // Manuell redigering gjør AI-angrepunktet utdatert
+        previousPlanJson: null,
         revision: { increment: 1 },
       },
     });

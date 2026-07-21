@@ -137,7 +137,8 @@ export function mergeAiImprovements(plan: Plan, value: unknown): Plan {
     throw new Error("AI-svaret hadde feil struktur");
   }
   const result = value as Partial<AiImprovement>;
-  if (!Array.isArray(result.weeks) || result.weeks.length === 0) {
+  // Tom liste er gyldig: det betyr at AI-en ikke fant noe å endre.
+  if (!Array.isArray(result.weeks)) {
     throw new Error("AI-svaret manglet uker");
   }
   const paceByKey = new Map(plan.paces.map((card) => [card.key, card]));

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createProgram } from "@/lib/actions";
 import { DISTANCES } from "@/lib/vdot";
+import { VdotCalculator } from "@/components/VdotCalculator";
 import { addIsoDays, isoDayOfWeek, todayInTimeZone } from "@/lib/date";
 import { requireCoach } from "@/lib/auth";
 
@@ -61,6 +62,8 @@ export default async function NewProgramPage({
             <input className={field} id="vdot" name="vdot" type="number" step="0.1" min="20" max="85" required placeholder="F.eks. 50" />
           </div>
         </div>
+
+        <VdotCalculator />
 
         <div className="grid grid-cols-2 gap-4">
           <div>

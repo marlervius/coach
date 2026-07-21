@@ -238,6 +238,16 @@ test("endringsrapporten bygges fra det som faktisk ble lagret", () => {
   assert.ok(report.changes.some((item) => item.change.includes("Ukessum: 6.5 → 8 km")));
 });
 
+test("tom ukeliste betyr ingen endringer og er gyldig", () => {
+  const plan = makePlan();
+  const merged = mergeAiImprovements(plan, {
+    weeks: [],
+    report: { summary: "Planen er kontrollert.", changes: [] },
+  });
+  assert.equal(merged.weeks.length, plan.weeks.length);
+  assert.equal(merged.weeks[0].days[1].title, plan.weeks[0].days[1].title);
+});
+
 test("endringsrapport er obligatorisk", () => {
   const before = makePlan();
   const ai = aiWeeks();
