@@ -29,10 +29,11 @@ const context = {
 test("generatoren lager en plan som består fagkontrollen", () => {
   const report = auditPlan(generatePlan(input), context);
   assert.equal(
-    report.issues.filter((issue) => issue.severity === "error").length,
+    report.issues.length,
     0,
     report.issues.map((issue) => issue.desc).join("\n")
   );
+  assert.equal(report.score, 100);
   assert.equal(report.ready, true);
 });
 
@@ -130,6 +131,29 @@ test("fagkontrollen finner glemt kilometerverdi i overskrift eller beskrivelse",
   assert.ok(codes.has("distance-text-mismatch"));
 });
 
+test("fagkontrollen finner feil ukessum og språkfragmenter", () => {
+  const plan = generatePlan(input);
+  plan.weeks[0].km += 1;
+  const easy = plan.weeks[0].days.find((day) => day.type === "rolig")!;
+  easy.desc += " Distansen er korrigert to 5 km with easy pace.";
+
+  const report = auditPlan(plan, context);
+  const codes = new Set(report.issues.map((issue) => issue.code));
+  assert.ok(codes.has("week-total-mismatch"));
+  assert.ok(codes.has("language-artifact"));
+  assert.equal(report.ready, false);
+});
+
+test("fagkontrollen krever at fart og puls følger økttypen", () => {
+  const plan = generatePlan(input);
+  const easy = plan.weeks[0].days.find((day) => day.type === "rolig")!;
+  easy.pace = "5:00/km";
+  easy.hr = "90–95 % av makspuls";
+
+  const codes = new Set(auditPlan(plan, context).issues.map((issue) => issue.code));
+  assert.ok(codes.has("pace-type-mismatch"));
+});
+
 test("typeinferensen skiller rolig langkjøring og blandet T/M-fart riktig", () => {
   assert.equal(
     inferRunningType("Rolig langkjøring + stigningsløp", "6 km lett i E-fart."),
@@ -167,13 +191,14 @@ test("generatoren består fagkontrollen på tvers av distanser og frekvenser", (
         weeklyKm: matrixInput.weeklyKm,
       });
       assert.equal(
-        report.ready,
-        true,
+        report.issues.length,
+        0,
         `${targetRace}/${daysPerWeek}: ${report.issues
-          .filter((issue) => issue.severity === "error")
           .map((issue) => `${issue.code}: ${issue.desc}`)
           .join("\n")}`
       );
+      assert.equal(report.score, 100);
+      assert.equal(report.ready, true);
     }
   }
 });
@@ -205,8 +230,36 @@ test("AI-stabiliseringen gjenoppretter langtur og fjerner overskytende harddag",
   assert.match(repairedLongRun.title, /^Langtur/);
   assert.doesNotMatch(repairedLongRun.desc, /\b(M-fart|maratonfart)\b/i);
   assert.equal(
-    after.issues.filter((issue) => issue.severity === "error").length,
+    after.issues.length,
     0,
     after.issues.map((issue) => issue.desc).join("\n")
+  );
+});
+
+test("AI-stabiliseringen retter langtursandel, ukessum og vanlige språkfeil", () => {
+  const baseline = generatePlan(input);
+  const broken = structuredClone(baseline);
+  const week = broken.weeks[0];
+  const easyDays = week.days.filter((day) => day.type === "rolig");
+  assert.ok(easyDays.length >= 2);
+  for (const day of easyDays) day.km = 1.5;
+  week.km = week.days.reduce((sum, day) => sum + day.km, 0);
+  week.days[0].desc = "Bruk dagen to å lade opp.";
+
+  const before = auditPlan(broken, context);
+  assert.ok(before.issues.some((issue) => issue.code === "long-run-share"));
+  assert.ok(before.issues.some((issue) => issue.code === "language-artifact"));
+
+  const stabilized = stabilizeAiPlan(broken, baseline, context);
+  const after = auditPlan(stabilized, context);
+  const stabilizedWeek = stabilized.weeks[0];
+  const calculated = stabilizedWeek.days.reduce((sum, day) => sum + day.km, 0);
+
+  assert.equal(stabilizedWeek.km, calculated);
+  assert.match(stabilizedWeek.days[0].desc, /dagen til å/);
+  assert.equal(
+    after.issues.length,
+    0,
+    after.issues.map((issue) => `${issue.code}: ${issue.desc}`).join("\n")
   );
 });

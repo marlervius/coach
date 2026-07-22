@@ -49,6 +49,100 @@ function makeEasy(
   };
 }
 
+function round05(value: number): number {
+  return Math.round(value * 2) / 2;
+}
+
+function ceil05(value: number): number {
+  return Math.ceil(value * 2 - 1e-9) / 2;
+}
+
+function polishNorwegianText(text: string): string {
+  return text
+    .replace(/\bwith\b/gi, "med")
+    .replace(/\bThis\b/g, "Dette")
+    .replace(/\bthis\b/g, "dette")
+    .replace(
+      /\b(korrigert|justert|endret|redusert|økt)\s+to(?=\s+\d)/gi,
+      "$1 til"
+    )
+    .replace(/\bBruk dagen to å(?=\s|[.,!?]|$)/g, "Bruk dagen til å")
+    .replace(/\bbruk dagen to å(?=\s|[.,!?]|$)/g, "bruk dagen til å")
+    .replace(/\bro to å(?=\s|[.,!?]|$)/gi, "ro til å");
+}
+
+function normalizeWeekTextAndTotal(
+  week: Plan["weeks"][number]
+): Plan["weeks"][number] {
+  const days = week.days.map((day) => ({
+    ...day,
+    title: polishNorwegianText(day.title),
+    desc: polishNorwegianText(day.desc),
+  }));
+  return {
+    ...week,
+    phaseName: polishNorwegianText(week.phaseName),
+    focus: polishNorwegianText(week.focus),
+    km: round05(days.reduce((sum, day) => sum + day.km, 0)),
+    days,
+  };
+}
+
+function balanceLongRunShare(
+  week: Plan["weeks"][number],
+  context: PlanQualityContext,
+  easyPace?: string,
+  easyHr?: string
+): Plan["weeks"][number] {
+  if (
+    context.daysPerWeek <= 3 ||
+    week.days.some((day) => day.type === "konkurranse")
+  ) {
+    return week;
+  }
+
+  const longRuns = week.days.filter(
+    (day) => day.type === "langtur" && day.km > 0
+  );
+  if (longRuns.length !== 1 || week.km <= 0) return week;
+
+  const longRun = longRuns[0];
+  if (longRun.km / week.km <= 0.42) return week;
+
+  const easyDates = week.days
+    .filter((day) => day.type === "rolig" && day.km > 0)
+    .map((day) => day.date);
+  if (easyDates.length === 0) return week;
+
+  const targetWeekKm = ceil05(longRun.km / 0.4);
+  let halfKmSteps = Math.max(0, Math.round((targetWeekKm - week.km) * 2));
+  const additions = new Map(easyDates.map((date) => [date, 0]));
+  let cursor = 0;
+  while (halfKmSteps > 0) {
+    const date = easyDates[cursor % easyDates.length];
+    additions.set(date, (additions.get(date) ?? 0) + 0.5);
+    halfKmSteps--;
+    cursor++;
+  }
+
+  const days = week.days.map((day) => {
+    const addition = additions.get(day.date) ?? 0;
+    if (addition === 0) return day;
+    return makeEasy(
+      { ...day, km: round05(day.km + addition) },
+      false,
+      easyPace,
+      easyHr
+    );
+  });
+
+  return {
+    ...week,
+    km: round05(days.reduce((sum, day) => sum + day.km, 0)),
+    days,
+  };
+}
+
 /**
  * Gjør de ukentlige strukturreglene deterministiske etter AI-redigering.
  * Gemini avgjør fortsatt øktinnholdet, mens serveren garanterer at en vanlig
@@ -61,7 +155,7 @@ export function stabilizeAiPlan(
 ): Plan {
   const easyCard = plan.paces.find((pace) => pace.key === "E");
   const baselineWeeks = new Map(baseline.weeks.map((week) => [week.nr, week]));
-  const weeks = plan.weeks.map((week) => {
+  const structurallyStableWeeks = plan.weeks.map((week) => {
     if (week.days.some((day) => day.type === "konkurranse")) return week;
 
     let days = week.days.map((day) => ({ ...day }));
@@ -121,6 +215,16 @@ export function stabilizeAiPlan(
     }
 
     return { ...week, days };
+  });
+
+  const weeks = structurallyStableWeeks.map((week) => {
+    const normalized = normalizeWeekTextAndTotal(week);
+    return balanceLongRunShare(
+      normalized,
+      context,
+      easyCard?.range,
+      easyCard?.hr
+    );
   });
 
   return { ...plan, weeks };
